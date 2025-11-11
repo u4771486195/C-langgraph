@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LangGraph Master Agent Architecture</title>
+<style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #111827; color: #d1d5db; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .header { background-color: #1f2937; padding: 1rem 2rem; border-bottom: 1px solid #374151; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; }
+    h1 { color: white; margin: 0; }
+    .controls { display: flex; align-items: center; gap: 20px; }
+    .legend { display: flex; gap: 20px; font-size: 12px; align-items: center; }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .main-container { display: flex; flex-grow: 1; }
+    .panel { min-width: 150px; height: 100%; display: flex; flex-direction: column; position: relative; }
+    .panel:nth-child(1) { flex: 0 1 15%; }
+    .panel:nth-child(3) { flex: 1 1 70%; }
+    .panel:nth-child(5) { flex: 0 1 15%; }
+
+    .splitter { width: 6px; background-color: #374151; cursor: col-resize; flex-shrink: 0; z-index: 100; }
+    .splitter:hover { background-color: #4b5563; }
+    .panel-header { padding: 1rem; text-align: center; border-bottom: 1px solid #374151; background-color: #1f2937; }
+    .panel-header h2 { margin: 0; font-size: 1.5rem; }
+    .header-r2 { color: #fca5a5; }
+    .header-r3 { color: #86efac; }
+    .header-r4 { color: #c4b5fd; }
+    .canvas { position: relative; width: 100%; flex-grow: 1; overflow: hidden; cursor: grab; }
+    .canvas:active { cursor: grabbing; }
+    .connections { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+    .transform-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; z-index: 2; }
+    
+    .node { position: absolute; border: 3px solid #4b5563; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); font-family: monospace; width: 280px; cursor: move; z-index: 10; user-select: none; padding-top: 30px; }
+    .node h3 { padding: 8px 12px 8px 12px; margin: 0; border-bottom: 1px solid rgba(0,0,0,0.2); border-radius: 8px 8px 0 0; font-size: 14px; color: white; word-break: break-all; }
+    .node h3 .path { font-size: 0.8em; color: #9ca3af; display: block; font-weight: normal; }
+    .node ul { list-style: none; padding: 0; margin: 0; }
+    .node li { display: flex; align-items: center; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px; position: relative; }
+    .node li:last-child { border-bottom: none; }
+    .node .col-name { font-weight: 500; }
+    .node .col-type { margin-left: auto; color: #9ca3af; }
+
+    .db-node { background-color: rgba(196, 181, 253, 0.15); border-color: #a78bfa; }
+    .db-node h3 { background-color: #8b5cf6; }
+    
+    .ui-node { background-color: rgba(191, 219, 254, 0.15); border-color: #60a5fa; }
+    .ui-node h3 { background-color: #3b82f6; }
+
+    .code-node { background-color: rgba(134, 239, 172, 0.1); border-color: #4ade80; }
+    .code-node h3 { background-color: #22c55e; }
+
+    .service-node { background-color: rgba(252, 165, 165, 0.1); border-color: #f87171; }
+    .service-node h3 { background-color: #ef4444; }
+    
+    .icon-display { position: absolute; top: -32px; left: 50%; transform: translateX(-50%); font-size: 64px; z-index: 12; pointer-events: none; opacity: 0.8; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>LangGraph Master Agent Architecture</h1>
+    <div class="controls">
+        <div class="legend">
+             <div class="legend-item"><svg width="10" height="10" style="background:#3b82f6; border-radius:3px;"></svg> UI / IO</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#22c55e; border-radius:3px;"></svg> Code</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#8b5cf6; border-radius:3px;"></svg> Data/Schema</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#ef4444; border-radius:3px;"></svg> Service</div>
+        </div>
+    </div>
+</div>
+
+<div class="main-container">
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r2">Raptor 2: Legacy</h2></div>
+        <div id="canvas-r2" class="canvas"><svg id="connections-r2" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+    <div class="splitter"></div>
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r3">LangGraph Engine</h2></div>
+        <div id="canvas-r3" class="canvas"><svg id="connections-r3" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+    <div class="splitter"></div>
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r4">Raptor 4: Future</h2></div>
+        <div id="canvas-r4" class="canvas"><svg id="connections-r4" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+</div>
+
+<script>
+// ===================================================================================
+//
+//  MASTER ARCHITECTURAL INSIGHTS
+//
+// ===================================================================================
+/*
+    ARCHITECTURAL INSIGHTS FOR FUTURE AI ANALYSIS:
+    This file visualizes the comprehensive architecture of various agentic patterns built using LangGraph, a framework for creating stateful, multi-actor applications. The design is founded on defining workflows as cyclical graphs, separating the structure from execution to enhance modularity, clarity, and persistence.
+
+    **Overall Architectural Philosophy:**
+    LangGraph provides a low-level, explicit method for defining cyclical graphs, essential for agentic behaviors such as reasoning loops, tool use, and self-correction. The central concept is a `StateGraph` operating on a persistent `State` object, making it ideal for durable, long-running applications that can maintain memory, recover from failures, and incorporate human-in-the-loop interactions. This philosophy is evident in patterns like "Plan-and-Execute," where a Planner agent devises a structured plan for a separate Executor agent to follow, increasing the robustness and auditability of the process.
+
+    **Key Component Types and Their Roles:**
+    - **Code/Logic Components (Green):**
+        - `StateGraph`: The primary class for constructing an agent's workflow, containing the graph's nodes and edges.
+        - `Node (Function)`: A computational unit (a Python function or LangChain Runnable) that updates the current state. Nodes represent the actors or workers, such as a `planner`, `executor`, `retriever`, or `responder`.
+        - `Conditional Edge (Function)`: The decision-making logic that directs the flow of the graph. After a node executes, an edge function determines the next node based on the current state, enabling complex routing and loops.
+        - `ToolNode`: A pre-built node for executing tools called by an LLM, simplifying the ReAct (Reason, Act) pattern.
+        - `Checkpointer`: A mechanism for persisting the graph's state (e.g., `InMemorySaver`, `SqliteSaver`, `PostgresSaver`), which is key to making agents durable.
+
+    - **Data/Schema Components (Purple):**
+        - `GraphState` or `AgentState` (TypedDict): A Python `TypedDict` defining the data schema for the graph. All nodes read from and write to this shared, typically additive, state object.
+        - `Pydantic Models`: Classes that define the expected structured output from LLMs, particularly for planning (`Plan`, `Step`) and self-evaluation (`GradeDocuments`), ensuring reliable control flow.
+
+    - **UI/IO Components (Blue):**
+        - `User Input`: The initial prompt that initiates the graph's execution.
+        - `Final Output`: The result returned when the graph reaches its `END` node.
+        - `LangSmith UI`: An external observability platform integrated with LangGraph, providing detailed execution traces for debugging.
+
+    - **Service Components (Red):**
+        - `LLM`: Large Language Models (from providers like OpenAI, Anthropic) that serve as the "brains" for decision-making, planning, and generation.
+        - `Tool`: External functions or APIs that agents can call, such as a `Web Search` tool, a `Python REPL`, or a custom `Retriever`.
+        - `Vectorstore`: A database used by a `Retriever` tool for Retrieval-Augmented Generation (RAG).
+
+    **The Generic Data and Control Flow Pipeline:**
+    1.  **Invocation:** The graph is invoked with an initial input, populating the `GraphState`.
+    2.  **Entry:** Execution starts at the `START` node, which routes to the first computational node.
+    3.  **Node Execution:** The current node function executes with the `GraphState`, performs its task, and returns a dictionary of state updates.
+    4.  **State Update:** LangGraph merges the updates into the `GraphState`.
+    5.  **Persistence:** If a `Checkpointer` is configured, the state is saved to a database.
+    6.  **Edge Evaluation:** A conditional edge function is called to determine the next node.
+    7.  **Looping/Termination:** The graph transitions to the next node, repeating from Step 3 until an edge directs the flow to the `END` node.
+    8.  **Output:** The final state is returned.
+    9.  **Tracing:** All steps are logged to `LangSmith` for visualization and debugging.
+*/
+const schemaR2 = { tables: [], relationships: [] };
+const schemaR4 = { tables: [], relationships: [] };
+
+const schemaR3 = {
+    tables: [
+        { id: 1, name: "User Input", path: "User Interaction", nodeType: "ui", pos: { x: 100, y: 50 }, icon: "💬", columns: [{"name":"Initial Question"},{"name":"Complex Task"},{"name":"question: str"},{"name":"Prompt"},{"name":"'Plot a sine wave...'"}] },
+        { id: 2, name: "Final Output", path: "User Interaction", nodeType: "ui", pos: { x: 100, y: 350 }, icon: "✅", columns: [{"name":"Final Answer"},{"name":"Completed Work"},{"name":"Image File"},{"name":"'plot.png'"}] },
+        { id: 3, name: "LangSmith UI", path: "Observability", nodeType: "ui", pos: { x: 100, y: 650 }, icon: "📊", columns: [{"name":"Trace Visualization"},{"name":"Debugging & Evaluation"}] },
+        { id: 4, name: "Final Answer", path: "User Interaction", nodeType: "ui", pos: { x: 100, y: 950 }, icon: "✅", columns: [{"name":"generation: str"}] },
+        { id: 5, name: "LangSmith Trace", path: "Observability", nodeType: "ui", pos: { x: 100, y: 1250 }, icon: "📊", columns: [{"name":"Visualizes all steps"}] },
+        { id: 6, name: "LangSmith", path: "Observability", nodeType: "ui", pos: { x: 100, y: 1550 }, icon: "📊", columns: [{"name":"Full Trace"}] },
+        { id: 7, name: "Web Loader", path: "Index Creation", nodeType: "ui", pos: { x: 100, y: 1850 }, icon: "🌐", columns: [{"name":".load()"}] },
+        { id: 8, name: "Stream Output", path: "User Interaction", nodeType: "ui", pos: { x: 100, y: 2150 }, icon: "🌊", columns: [{"name":"LLM Tokens"},{"name":"Agent Steps"}] },
+        { id: 9, name: "User Query", path: "User Interaction", nodeType: "ui", pos: { x: 100, y: 2450 }, icon: "💬", columns: [] },
+        { id: 10, name: "StateGraph", path: "langgraph.graph", nodeType: "code", pos: { x: 500, y: 50 }, icon: " G ", columns: [{"name":".add_node()"},{"name":".add_edge()"},{"name":".add_conditional_edges()"},{"name":".compile()"},{"name":".stream()"}] },
+        { id: 11, name: "Node (Function)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 350 }, icon: "⚙️", columns: [{"name":"Takes: GraphState"},{"name":"Returns: dict (update)"}] },
+        { id: 12, name: "Conditional Edge", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 650 }, icon: "🔀", columns: [{"name":"Takes: GraphState"},{"name":"Returns: str (next_node)"}] },
+        { id: 13, name: "START", path: "Graph Entry Point", nodeType: "code", pos: { x: 500, y: 950 }, icon: "▶️", columns: [] },
+        { id: 14, name: "END", path: "Graph Exit Point", nodeType: "code", pos: { x: 500, y: 1250 }, icon: "⏹️", columns: [] },
+        { id: 15, name: "ToolNode", path: "langgraph.prebuilt", nodeType: "code", pos: { x: 500, y: 1550 }, icon: "🛠️", columns: [{"name":"Executes tool calls"}] },
+        { id: 16, name: "Checkpointer", path: "langgraph.checkpoint", nodeType: "code", pos: { x: 500, y: 1850 }, icon: "💾", columns: [{"name":".get()","type":"Reads State"},{"name":".put()","type":"Writes State"},{"name":"e.g., MemorySaver"},{"name":"Saves/Loads State"}] },
+        { id: 17, name: "StateGraph Definition", path: "langgraph.graph.StateGraph", nodeType: "code", pos: { x: 500, y: 2150 }, icon: " G ", columns: [{"name":".add_node()"},{"name":".add_edge()"},{"name":".add_conditional_edges()"}] },
+        { id: 18, name: "retrieve (Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 2450 }, icon: "⚙️", columns: [{"name":"get_relevant_documents()"}] },
+        { id: 19, name: "grade_documents (Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 2750 }, icon: "⚖️", columns: [{"name":"retrieval_grader.invoke()"}] },
+        { id: 20, name: "decide_to_generate (Edge)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 3050 }, icon: "🔀", columns: [{"name":"if not filtered_documents"}] },
+        { id: 21, name: "generate (Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 3350 }, icon: "⚙️", columns: [{"name":"rag_chain.invoke()"}] },
+        { id: 22, name: "grade_generation (Edge)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 3650 }, icon: "🔀", columns: [{"name":"hallucination_grader.invoke()"},{"name":"answer_grader.invoke()"},{"name":"hallucination_grader()"},{"name":"answer_grader()"}] },
+        { id: 23, name: "transform_query (Node)", path: "Workflow Logic (Correction Loop)", nodeType: "code", pos: { x: 500, y: 3950 }, icon: "✍️", columns: [{"name":"question_rewriter.invoke()"}] },
+        { id: 24, name: "retrieval_grader (Chain)", path: "LLM Chain", nodeType: "code", pos: { x: 500, y: 4250 }, icon: "🔗", columns: [{"name":"grade_prompt | llm"}] },
+        { id: 25, name: "hallucination_grader (Chain)", path: "LLM Chain", nodeType: "code", pos: { x: 500, y: 4550 }, icon: "🔗", columns: [{"name":"hallucination_prompt | llm"}] },
+        { id: 26, name: "answer_grader (Chain)", path: "LLM Chain", nodeType: "code", pos: { x: 500, y: 4850 }, icon: "🔗", columns: [{"name":"answer_prompt | llm"}] },
+        { id: 27, name: "question_rewriter (Chain)", path: "LLM Chain", nodeType: "code", pos: { x: 500, y: 5150 }, icon: "🔗", columns: [{"name":"re_write_prompt | llm"}] },
+        { id: 28, name: "Super-Graph (Orchestrator)", path: "langgraph.graph.StateGraph", nodeType: "code", pos: { x: 500, y: 5450 }, icon: "👑", columns: [{"name":"Delegate to Team"}] },
+        { id: 29, name: "Routing Function", path: "Conditional Edge", nodeType: "code", pos: { x: 500, y: 5750 }, icon: "🔀", columns: [{"name":"Reads 'state.next'"},{"name":"Routes to Team or END"}] },
+        { id: 30, name: "Research Team Supervisor", path: "Sub-Graph", nodeType: "code", pos: { x: 500, y: 6050 }, icon: "🕵️‍♂️", columns: [{"name":"Delegate to Worker"}] },
+        { id: 31, name: "Search Node", path: "Research Worker", nodeType: "code", pos: { x: 500, y: 6350 }, icon: "🔍", columns: [{"name":"Uses Tavily Search"}] },
+        { id: 32, name: "Scrape Node", path: "Research Worker", nodeType: "code", pos: { x: 500, y: 6650 }, icon: "📄", columns: [{"name":"Uses Web Scraper"}] },
+        { id: 33, name: "Research Routing", path: "Conditional Edge", nodeType: "code", pos: { x: 500, y: 6950 }, icon: "🔀", columns: [{"name":"Routes to Worker or FINISH"}] },
+        { id: 34, name: "Writing Team Supervisor", path: "Sub-Graph", nodeType: "code", pos: { x: 500, y: 7250 }, icon: "✍️", columns: [{"name":"Delegate to Worker"}] },
+        { id: 35, name: "Note Taker Node", path: "Writing Worker", nodeType: "code", pos: { x: 500, y: 7550 }, icon: "📝", columns: [{"name":"create_outline()"}] },
+        { id: 36, name: "Doc Writer Node", path: "Writing Worker", nodeType: "code", pos: { x: 500, y: 7850 }, icon: "🖋️", columns: [{"name":"write_document()"}] },
+        { id: 37, name: "Chart Generator Node", path: "Writing Worker", nodeType: "code", pos: { x: 500, y: 8150 }, icon: "📈", columns: [{"name":"python_repl_tool()"}] },
+        { id: 38, name: "Writing Routing", path: "Conditional Edge", nodeType: "code", pos: { x: 500, y: 8450 }, icon: "🔀", columns: [{"name":"Routes to Worker or FINISH"}] },
+        { id: 39, name: "route_question (Edge)", path: "Workflow Logic (Router)", nodeType: "code", pos: { x: 500, y: 8750 }, icon: "🔀", columns: [{"name":"question_router.invoke()"}] },
+        { id: 40, name: "retrieve (Node)", path: "Workflow Logic (Vectorstore Path)", nodeType: "code", pos: { x: 500, y: 9050 }, icon: "📚", columns: [{"name":"retriever.invoke()"}] },
+        { id: 41, name: "web_search (Node)", path: "Workflow Logic (Web Path)", nodeType: "code", pos: { x: 500, y: 9350 }, icon: "🔍", columns: [{"name":"tavily_tool.invoke()"}] },
+        { id: 42, name: "grade_documents (Edge)", path: "Workflow Logic (Reflection)", nodeType: "code", pos: { x: 500, y: 9650 }, icon: "⚖️", columns: [{"name":"retrieval_grader.invoke()"}] },
+        { id: 43, name: "create_react_agent", path: "langgraph.prebuilt", nodeType: "code", pos: { x: 500, y: 9950 }, icon: "🛠️", columns: [{"name":"(model, tools)"},{"name":"Returns CompiledGraph"}] },
+        { id: 44, name: "call_model (Agent Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 10250 }, icon: "🧠", columns: [{"name":"model.invoke(messages)"},{"name":"Returns AIMessage"}] },
+        { id: 45, name: "should_continue (Edge)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 10550 }, icon: "🔀", columns: [{"name":"if message has tool_calls"},{"name":"if last_message has tool_calls:"},{"name":"  return 'action'"},{"name":"else: return END"}] },
+        { id: 46, name: "interrupt (Function)", path: "langgraph.types", nodeType: "code", pos: { x: 500, y: 10850 }, icon: "⏸️", columns: [{"name":"Pauses execution"},{"name":"Awaits human input"}] },
+        { id: 47, name: "Agent (Node)", path: "Workflow Logic: Reason", nodeType: "code", pos: { x: 500, y: 11150 }, icon: "🧠", columns: [{"name":"model.invoke(state)"},{"name":"Returns: AIMessage"},{"name":"with tool_calls"}] },
+        { id: 48, name: "Code Executor (ToolNode)", path: "Workflow Logic: Act", nodeType: "code", pos: { x: 500, y: 11450 }, icon: "⚙️", columns: [{"name":"tool_executor.invoke(tool_call)"},{"name":"Returns: ToolMessage"}] },
+        { id: 49, name: "planner (Node)", path: "Workflow Logic: Plan", nodeType: "code", pos: { x: 500, y: 11750 }, icon: "🤔", columns: [{"name":"planner_chain.invoke(state)"}] },
+        { id: 50, name: "executor (ToolNode)", path: "Workflow Logic: Execute", nodeType: "code", pos: { x: 500, y: 12050 }, icon: "⚙️", columns: [{"name":"tool_executor.invoke(next_step)"}] },
+        { id: 51, name: "responder (Node)", path: "Workflow Logic: Respond", nodeType: "code", pos: { x: 500, y: 12350 }, icon: "🗣️", columns: [{"name":"responder_chain.invoke(state)"}] },
+        { id: 52, name: "should_continue (Edge)", path: "Workflow Logic: Router", nodeType: "code", pos: { x: 500, y: 12650 }, icon: "🔀", columns: [{"name":"if len(plan) > len(past_steps)"}] },
+        { id: 53, name: "agent_node (Function)", path: "Helper Function", nodeType: "code", pos: { x: 500, y: 12950 }, icon: "🏭", columns: [{"name":"Executes a single agent chain"}] },
+        { id: 54, name: "Supervisor (Agent)", path: "Workflow Orchestrator", nodeType: "code", pos: { x: 500, y: 13250 }, icon: "👑", columns: [{"name":"create_agent(tools=[router_tool])"},{"name":"Decides next agent or FINISH"}] },
+        { id: 55, name: "Router (Conditional Edge)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 13550 }, icon: "🔀", columns: [{"name":"if tool_calls: route to ToolNode"},{"name":"if recipient: route to agent"},{"name":"if FINISH: route to END"}] },
+        { id: 56, name: "Researcher (Agent)", path: "Specialist Agent", nodeType: "code", pos: { x: 500, y: 13850 }, icon: "🔬", columns: [{"name":"create_agent(tools=[search_tool])"},{"name":"Gathers information"}] },
+        { id: 57, name: "Writer (Agent)", path: "Specialist Agent", nodeType: "code", pos: { x: 500, y: 14150 }, icon: "✍️", columns: [{"name":"create_agent(tools=[])"},{"name":"Writes final response"}] },
+        { id: 58, name: "create_agent (Factory)", path: "Helper Function", nodeType: "code", pos: { x: 500, y: 14450 }, icon: "🏭", columns: [{"name":"Creates LLMChain for an agent"}] },
+        { id: 59, name: "Router (Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 14750 }, icon: "🧠", columns: [{"name":"Classifies query type"}] },
+        { id: 60, name: "Create Research Plan (Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 15050 }, icon: "📝", columns: [{"name":"Generates research steps"}] },
+        { id: 61, name: "Generate Queries (Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 15350 }, icon: "🔍", columns: [{"name":"Generates search queries"}] },
+        { id: 62, name: "Retrieve Documents (Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 15650 }, icon: "📚", columns: [{"name":"Executes queries in parallel"}] },
+        { id: 63, name: "Generate Answer (Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 15950 }, icon: "✍️", columns: [{"name":"Synthesizes final response"}] },
+        { id: 64, name: "General Response (Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 500, y: 16250 }, icon: "🗣️", columns: [{"name":"Politely declines"}] },
+        { id: 65, name: "GraphState", path: "TypedDict", nodeType: "db", pos: { x: 900, y: 50 }, icon: "📋", columns: [{"name":"messages: list"},{"name":"generation: str"},{"name":"documents: list"},{"name":"...other_state"},{"name":"question: str"},{"name":"documents: List[str]"},{"name":"messages: List"},{"name":"next: str"},{"name":"datasource: str"},{"name":"input: str"},{"name":"plan: List[Step]"},{"name":"past_steps: List"},{"name":"response: str"},{"name":"messages: Annotated[list, add_messages]"}] },
+        { id: 66, name: "GradeDocuments", path: "Pydantic Model", nodeType: "db", pos: { x: 900, y: 350 }, icon: "📝", columns: [{"name":"binary_score: 'yes'|'no'"}] },
+        { id: 67, name: "GradeHallucinations", path: "Pydantic Model", nodeType: "db", pos: { x: 900, y: 650 }, icon: "📝", columns: [{"name":"binary_score: 'yes'|'no'"}] },
+        { id: 68, name: "GradeAnswer", path: "Pydantic Model", nodeType: "db", pos: { x: 900, y: 950 }, icon: "📝", columns: [{"name":"binary_score: 'yes'|'no'"}] },
+        { id: 69, name: "RouteQuery", path: "Pydantic Model", nodeType: "db", pos: { x: 900, y: 1250 }, icon: "📝", columns: [{"name":"datasource: 'vectorstore'|'web_search'"}] },
+        { id: 70, name: "MessagesState", path: "langgraph.graph.MessagesState", nodeType: "db", pos: { x: 900, y: 1550 }, icon: "📋", columns: [{"name":"messages: List[BaseMessage]"}] },
+        { id: 71, name: "AgentState", path: "TypedDict", nodeType: "db", pos: { x: 900, y: 1850 }, icon: "📋", columns: [{"name":"messages: List[BaseMessage]"}] },
+        { id: 72, name: "Plan & Step Models", path: "Pydantic Models", nodeType: "db", pos: { x: 900, y: 2150 }, icon: "📝", columns: [{"name":"Plan(steps: List[Step])"},{"name":"Step(instruction, tool_calls)"}] },
+        { id: 73, name: "System Prompts", path: "Configuration", nodeType: "db", pos: { x: 900, y: 2450 }, icon: "📜", columns: [{"name":"router_system_prompt"},{"name":"research_plan_system_prompt"},{"name":"generate_queries_system_prompt"},{"name":"response_system_prompt"}] },
+        { id: 74, name: "LLM", path: "External Service", nodeType: "service", pos: { x: 1300, y: 50 }, icon: "🧠", columns: [{"name":"e.g., OpenAI, Mistral"},{"name":"gpt-4o-mini / gpt-3.5-turbo"},{"name":".with_structured_output()"},{"name":".invoke()"},{"name":"e.g., GPT-4o"},{"name":"e.g., ChatAnthropic"},{"name":".bind_tools()"},{"name":"OpenAI GPT-4"},{"name":".bind_tools([python_repl])"},{"name":"powers planner & responder"},{"name":"Claude Haiku"}] },
+        { id: 75, name: "Tool", path: "External Service", nodeType: "service", pos: { x: 1300, y: 350 }, icon: "🔍", columns: [{"name":"e.g., Tavily Search"},{"name":"e.g., Retriever"},{"name":"e.g., get_weather"},{"name":"External function"}] },
+        { id: 76, name: "Vectorstore", path: "External Service", nodeType: "service", pos: { x: 1300, y: 650 }, icon: "📚", columns: [{"name":"e.g., Chroma, FAISS"},{"name":"Chroma / Pinecone"},{"name":"from_documents()"}] },
+        { id: 77, name: "Tavily Search", path: "External Service", nodeType: "service", pos: { x: 1300, y: 950 }, icon: "🌐", columns: [{"name":"Web Search API"}] },
+        { id: 78, name: "File System / Python REPL", path: "Local Service", nodeType: "service", pos: { x: 1300, y: 1250 }, icon: "💻", columns: [{"name":"Writes files, runs code"}] },
+        { id: 79, name: "Web Search", path: "Tavily", nodeType: "service", pos: { x: 1300, y: 1550 }, icon: "🌐", columns: [{"name":"tavily_tool"}] },
+        { id: 80, name: "Python REPL", path: "Tool", nodeType: "service", pos: { x: 1300, y: 1850 }, icon: "🐍", columns: [{"name":"Executes Python code"}] },
+        { id: 81, name: "Retriever", path: "Vectorstore Interface", nodeType: "service", pos: { x: 1300, y: 2150 }, icon: "🔍", columns: [{"name":".as_retriever()"}] }
+    ],
+    relationships: [
+        { "from": { "table": "User Input", "column": "Initial Question" }, "to": { "table": "StateGraph", "column": ".stream()" }, "type": "flow" },
+        { "from": { "table": "StateGraph", "column": ".compile()" }, "to": { "table": "GraphState", "column": "messages: list" }, "type": "read" },
+        { "from": { "table": "StateGraph", "column": ".add_node()" }, "to": { "table": "Node (Function)", "column": "Takes: GraphState" }, "type": "flow" },
+        { "from": { "table": "StateGraph", "column": ".add_conditional_edges()" }, "to": { "table": "Conditional Edge", "column": "Takes: GraphState" }, "type": "flow" },
+        { "from": { "table": "StateGraph", "column": ".stream()" }, "to": { "table": "START", "column": "" }, "type": "flow" },
+        { "from": { "table": "START", "column": "" }, "to": { "table": "Node (Function)", "column": "Takes: GraphState" }, "type": "flow" },
+        { "from": { "table": "Node (Function)", "column": "Takes: GraphState" }, "to": { "table": "GraphState", "column": "messages: list" }, "type": "read" },
+        { "from": { "table": "Node (Function)", "column": "Returns: dict (update)" }, "to": { "table": "GraphState", "column": "generation: str" }, "type": "write" },
+        { "from": { "table": "Node (Function)", "column": "Takes: GraphState" }, "to": { "table": "LLM", "column": "e.g., OpenAI, Mistral" }, "type": "flow" },
+        { "from": { "table": "Node (Function)", "column": "Takes: GraphState" }, "to": { "table": "ToolNode", "column": "Executes tool calls" }, "type": "flow" },
+        { "from": { "table": "Node (Function)", "column": "Returns: dict (update)" }, "to": { "table": "Conditional Edge", "column": "Takes: GraphState" }, "type": "flow" },
+        { "from": { "table": "Conditional Edge", "column": "Takes: GraphState" }, "to": { "table": "GraphState", "column": "messages: list" }, "type": "read" },
+        { "from": { "table": "Conditional Edge", "column": "Returns: str (next_node)" }, "to": { "table": "Node (Function)", "column": "Takes: GraphState" }, "type": "flow" },
+        { "from": { "table": "Conditional Edge", "column": "Returns: str (next_node)" }, "to": { "table": "END", "column": "" }, "type": "flow" },
+        { "from": { "table": "ToolNode", "column": "Executes tool calls" }, "to": { "table": "Tool", "column": "e.g., Tavily Search" }, "type": "flow" },
+        { "from": { "table": "Tool", "column": "e.g., Retriever" }, "to": { "table": "Vectorstore", "column": "e.g., Chroma, FAISS" }, "type": "flow" },
+        { "from": { "table": "END", "column": "" }, "to": { "table": "Final Output", "column": "Final Answer" }, "type": "flow" },
+        { "from": { "table": "StateGraph", "column": ".compile()" }, "to": { "table": "Checkpointer", "column": ".get()" }, "type": "flow" },
+        { "from": { "table": "Checkpointer", "column": ".put()" }, "to": { "table": "GraphState", "column": "messages: list" }, "type": "write" },
+        { "from": { "table": "StateGraph", "column": ".stream()" }, "to": { "table": "LangSmith UI", "column": "Trace Visualization" }, "type": "flow" },
+        { "from": { "table": "User Input", "column": "question: str" }, "to": { "table": "StateGraph Definition", "column": ".add_node()" }, "type": "flow" },
+        { "from": { "table": "StateGraph Definition", "column": ".add_node()" }, "to": { "table": "GraphState", "column": "question: str" }, "type": "write" },
+        { "from": { "table": "StateGraph Definition", "column": ".add_edge()" }, "to": { "table": "retrieve (Node)", "column": "get_relevant_documents()" }, "type": "flow" },
+        { "from": { "table": "retrieve (Node)", "column": "get_relevant_documents()" }, "to": { "table": "GraphState", "column": "question: str" }, "type": "read" },
+        { "from": { "table": "retrieve (Node)", "column": "get_relevant_documents()" }, "to": { "table": "Retriever", "column": ".as_retriever()" }, "type": "flow" },
+        { "from": { "table": "Retriever", "column": ".as_retriever()" }, "to": { "table": "Vectorstore", "column": "from_documents()" }, "type": "flow" },
+        { "from": { "table": "Web Loader", "column": "WebBaseLoader.load()" }, "to": { "table": "Vectorstore", "column": "from_documents()" }, "type": "write" },
+        { "from": { "table": "retrieve (Node)", "column": "get_relevant_documents()" }, "to": { "table": "GraphState", "column": "documents: List[str]" }, "type": "write" },
+        { "from": { "table": "retrieve (Node)", "column": "get_relevant_documents()" }, "to": { "table": "grade_documents (Node)", "column": "retrieval_grader.invoke()" }, "type": "flow" },
+        { "from": { "table": "grade_documents (Node)", "column": "retrieval_grader.invoke()" }, "to": { "table": "GraphState", "column": "documents: List[str]" }, "type": "read" },
+        { "from": { "table": "grade_documents (Node)", "column": "retrieval_grader.invoke()" }, "to": { "table": "retrieval_grader (Chain)", "column": "grade_prompt | llm" }, "type": "flow" },
+        { "from": { "table": "retrieval_grader (Chain)", "column": "grade_prompt | llm" }, "to": { "table": "GradeDocuments", "column": "binary_score: 'yes'|'no'" }, "type": "write" },
+        { "from": { "table": "retrieval_grader (Chain)", "column": "grade_prompt | llm" }, "to": { "table": "LLM", "column": ".with_structured_output()" }, "type": "flow" },
+        { "from": { "table": "grade_documents (Node)", "column": "retrieval_grader.invoke()" }, "to": { "table": "GraphState", "column": "documents: List[str]" }, "type": "write" },
+        { "from": { "table": "grade_documents (Node)", "column": "retrieval_grader.invoke()" }, "to": { "table": "decide_to_generate (Edge)", "column": "if not filtered_documents" }, "type": "flow" },
+        { "from": { "table": "decide_to_generate (Edge)", "column": "if not filtered_documents" }, "to": { "table": "GraphState", "column": "documents: List[str]" }, "type": "read" },
+        { "from": { "table": "decide_to_generate (Edge)", "column": "if not filtered_documents" }, "to": { "table": "generate (Node)", "column": "rag_chain.invoke()" }, "type": "flow" },
+        { "from": { "table": "generate (Node)", "column": "rag_chain.invoke()" }, "to": { "table": "GraphState", "column": "documents: List[str]" }, "type": "read" },
+        { "from": { "table": "generate (Node)", "column": "rag_chain.invoke()" }, "to": { "table": "LLM", "column": ".invoke()" }, "type": "flow" },
+        { "from": { "table": "generate (Node)", "column": "rag_chain.invoke()" }, "to": { "table": "GraphState", "column": "generation: str" }, "type": "write" },
+        { "from": { "table": "generate (Node)", "column": "rag_chain.invoke()" }, "to": { "table": "grade_generation (Edge)", "column": "hallucination_grader.invoke()" }, "type": "flow" },
+        { "from": { "table": "grade_generation (Edge)", "column": "hallucination_grader.invoke()" }, "to": { "table": "GraphState", "column": "generation: str" }, "type": "read" },
+        { "from": { "table": "grade_generation (Edge)", "column": "hallucination_grader.invoke()" }, "to": { "table": "hallucination_grader (Chain)", "column": "hallucination_prompt | llm" }, "type": "flow" },
+        { "from": { "table": "hallucination_grader (Chain)", "column": "hallucination_prompt | llm" }, "to": { "table": "GradeHallucinations", "column": "binary_score: 'yes'|'no'" }, "type": "write" },
+        { "from": { "table": "hallucination_grader (Chain)", "column": "hallucination_prompt | llm" }, "to": { "table": "LLM", "column": ".with_structured_output()" }, "type": "flow" },
+        { "from": { "table": "grade_generation (Edge)", "column": "answer_grader.invoke()" }, "to": { "table": "answer_grader (Chain)", "column": "answer_prompt | llm" }, "type": "flow" },
+        { "from": { "table": "answer_grader (Chain)", "column": "answer_prompt | llm" }, "to": { "table": "GradeAnswer", "column": "binary_score: 'yes'|'no'" }, "type": "write" },
+        { "from": { "table": "answer_grader (Chain)", "column": "answer_prompt | llm" }, "to": { "table": "LLM", "column": ".with_structured_output()" }, "type": "flow" },
+        { "from": { "table": "grade_generation (Edge)", "column": "hallucination_grader.invoke()" }, "to": { "table": "Final Answer", "column": "generation: str" }, "type": "flow" },
+        { "from": { "table": "decide_to_generate (Edge)", "column": "if not filtered_documents" }, "to": { "table": "transform_query (Node)", "column": "question_rewriter.invoke()" }, "type": "flow" },
+        { "from": { "table": "grade_generation (Edge)", "column": "answer_grader.invoke()" }, "to": { "table": "transform_query (Node)", "column": "question_rewriter.invoke()" }, "type": "flow" },
+        { "from": { "table": "transform_query (Node)", "column": "question_rewriter.invoke()" }, "to": { "table": "GraphState", "column": "question: str" }, "type": "read" },
+        { "from": { "table": "transform_query (Node)", "column": "question_rewriter.invoke()" }, "to": { "table": "question_rewriter (Chain)", "column": "re_write_prompt | llm" }, "type": "flow" },
+        { "from": { "table": "question_rewriter (Chain)", "column": "re_write_prompt | llm" }, "to": { "table": "LLM", "column": ".invoke()" }, "type": "flow" },
+        { "from": { "table": "transform_query (Node)", "column": "question_rewriter.invoke()" }, "to": { "table": "GraphState", "column": "question: str" }, "type": "write" },
+        { "from": { "table": "transform_query (Node)", "column": "question_rewriter.invoke()" }, "to": { "table": "retrieve (Node)", "column": "get_relevant_documents()" }, "type": "flow" },
+        { "from": { "table": "grade_generation (Edge)", "column": "hallucination_grader.invoke()" }, "to": { "table": "generate (Node)", "column": "rag_chain.invoke()" }, "type": "flow" },
+        { "from": { "table": "StateGraph Definition", "column": ".add_node()" }, "to": { "table": "LangSmith Trace", "column": "Visualizes all steps" }, "type": "flow" },
+        { "from": { "table": "User Input" }, "to": { "table": "Super-Graph (Orchestrator)" }, "type": "flow" },
+        { "from": { "table": "Super-Graph (Orchestrator)" }, "to": { "table": "GraphState", "column": "next: str" }, "type": "write" },
+        { "from": { "table": "Super-Graph (Orchestrator)" }, "to": { "table": "Routing Function" }, "type": "flow" },
+        { "from": { "table": "Routing Function" }, "to": { "table": "GraphState", "column": "next: str" }, "type": "read" },
+        { "from": { "table": "Routing Function" }, "to": { "table": "Research Team Supervisor" }, "type": "flow" },
+        { "from": { "table": "Routing Function" }, "to": { "table": "Writing Team Supervisor" }, "type": "flow" },
+        { "from": { "table": "Routing Function" }, "to": { "table": "Final Output" }, "type": "flow" },
+        { "from": { "table": "Research Team Supervisor" }, "to": { "table": "GraphState", "column": "next: str" }, "type": "write" },
+        { "from": { "table": "Research Team Supervisor" }, "to": { "table": "Research Routing" }, "type": "flow" },
+        { "from": { "table": "Research Routing" }, "to": { "table": "GraphState", "column": "next: str" }, "type": "read" },
+        { "from": { "table": "Research Routing" }, "to": { "table": "Search Node" }, "type": "flow" },
+        { "from": { "table": "Research Routing" }, "to": { "table": "Scrape Node" }, "type": "flow" },
+        { "from": { "table": "Search Node" }, "to": { "table": "Research Team Supervisor" }, "type": "flow" },
+        { "from": { "table": "Scrape Node" }, "to": { "table": "Research Team Supervisor" }, "type": "flow" },
+        { "from": { "table": "Research Routing" }, "to": { "table": "Super-Graph (Orchestrator)" }, "type": "flow" },
+        { "from": { "table": "Writing Team Supervisor" }, "to": { "table": "GraphState", "column": "next: str" }, "type": "write" },
+        { "from": { "table": "Writing Team Supervisor" }, "to": { "table": "Writing Routing" }, "type": "flow" },
+        { "from": { "table": "Writing Routing" }, "to": { "table": "GraphState", "column": "next: str" }, "type": "read" },
+        { "from": { "table": "Writing Routing" }, "to": { "table": "Note Taker Node" }, "type": "flow" },
+        { "from": { "table": "Writing Routing" }, "to": { "table": "Doc Writer Node" }, "type": "flow" },
+        { "from": { "table": "Writing Routing" }, "to": { "table": "Chart Generator Node" }, "type": "flow" },
+        { "from": { "table": "Note Taker Node" }, "to": { "table": "Writing Team Supervisor" }, "type": "flow" },
+        { "from": { "table": "Doc Writer Node" }, "to": { "table": "Writing Team Supervisor" }, "type": "flow" },
+        { "from": { "table": "Chart Generator Node" }, "to": { "table": "Writing Team Supervisor" }, "type": "flow" },
+        { "from": { "table": "Writing Routing" }, "to": { "table": "Super-Graph (Orchestrator)" }, "type": "flow" },
+        { "from": { "table": "Search Node" }, "to": { "table": "Tavily Search" }, "type": "flow" },
+        { "from": { "table": "Note Taker Node" }, "to": { "table": "File System / Python REPL" }, "type": "flow" },
+        { "from": { "table": "Doc Writer Node" }, "to": { "table": "File System / Python REPL" }, "type": "flow" },
+        { "from": { "table": "Chart Generator Node" }, "to": { "table": "File System / Python REPL" }, "type": "flow" },
+        { "from": { "table": "Super-Graph (Orchestrator)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Research Team Supervisor" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Writing Team Supervisor" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Search Node" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Scrape Node" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Note Taker Node" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Doc Writer Node" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Chart Generator Node" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "LLM" }, "to": { "table": "GraphState", "column": "messages: List" }, "type": "read" },
+        { "from": { "table": "Super-Graph (Orchestrator)" }, "to": { "table": "LangSmith" }, "type": "flow" },
+        { "from": { "table": "User Input", "column": "question: str" }, "to": { "table": "route_question (Edge)" }, "type": "flow" },
+        { "from": { "table": "route_question (Edge)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "route_question (Edge)" }, "to": { "table": "RouteQuery" }, "type": "write" },
+        { "from": { "table": "RouteQuery" }, "to": { "table": "GraphState", "column": "datasource: str" }, "type": "write" },
+        { "from": { "table": "route_question (Edge)" }, "to": { "table": "retrieve (Node)" }, "type": "flow" },
+        { "from": { "table": "route_question (Edge)" }, "to": { "table": "web_search (Node)" }, "type": "flow" },
+        { "from": { "table": "retrieve (Node)" }, "to": { "table": "Vectorstore" }, "type": "flow" },
+        { "from": { "table": "retrieve (Node)" }, "to": { "table": "GraphState", "column": "documents: List" }, "type": "write" },
+        { "from": { "table": "Web Loader" }, "to": { "table": "Vectorstore" }, "type": "write" },
+        { "from": { "table": "web_search (Node)" }, "to": { "table": "Web Search" }, "type": "flow" },
+        { "from": { "table": "web_search (Node)" }, "to": { "table": "GraphState", "column": "documents: List" }, "type": "write" },
+        { "from": { "table": "retrieve (Node)" }, "to": { "table": "grade_documents (Edge)" }, "type": "flow" },
+        { "from": { "table": "web_search (Node)" }, "to": { "table": "grade_documents (Edge)" }, "type": "flow" },
+        { "from": { "table": "grade_documents (Edge)" }, "to": { "table": "GraphState", "column": "documents: List" }, "type": "read" },
+        { "from": { "table": "grade_documents (Edge)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "grade_documents (Edge)" }, "to": { "table": "GradeDocuments" }, "type": "write" },
+        { "from": { "table": "grade_documents (Edge)" }, "to": { "table": "transform_query (Node)" }, "type": "flow" },
+        { "from": { "table": "transform_query (Node)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "transform_query (Node)" }, "to": { "table": "GraphState", "column": "question: str" }, "type": "write" },
+        { "from": { "table": "transform_query (Node)" }, "to": { "table": "retrieve (Node)" }, "type": "flow" },
+        { "from": { "table": "grade_documents (Edge)" }, "to": { "table": "generate (Node)" }, "type": "flow" },
+        { "from": { "table": "grade_generation (Edge)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "grade_generation (Edge)" }, "to": { "table": "generate (Node)" }, "type": "flow" },
+        { "from": { "table": "grade_generation (Edge)" }, "to": { "table": "transform_query (Node)" }, "type": "flow" },
+        { "from": { "table": "User Input" }, "to": { "table": "MessagesState" }, "type": "write" },
+        { "from": { "table": "create_react_agent" }, "to": { "table": "LLM" }, "type": "read" },
+        { "from": { "table": "create_react_agent" }, "to": { "table": "Tool" }, "type": "read" },
+        { "from": { "table": "MessagesState" }, "to": { "table": "call_model (Agent Node)" }, "type": "read" },
+        { "from": { "table": "call_model (Agent Node)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "call_model (Agent Node)" }, "to": { "table": "MessagesState" }, "type": "write" },
+        { "from": { "table": "call_model (Agent Node)" }, "to": { "table": "should_continue (Edge)" }, "type": "flow" },
+        { "from": { "table": "should_continue (Edge)" }, "to": { "table": "MessagesState" }, "type": "read" },
+        { "from": { "table": "should_continue (Edge)" }, "to": { "table": "ToolNode" }, "type": "flow" },
+        { "from": { "table": "ToolNode" }, "to": { "table": "Tool" }, "type": "flow" },
+        { "from": { "table": "ToolNode" }, "to": { "table": "MessagesState" }, "type": "write" },
+        { "from": { "table": "ToolNode" }, "to": { "table": "call_model (Agent Node)" }, "type": "flow" },
+        { "from": { "table": "Checkpointer" }, "to": { "table": "MessagesState" }, "type": "write" },
+        { "from": { "table": "interrupt (Function)" }, "to": { "table": "Checkpointer" }, "type": "flow" },
+        { "from": { "table": "call_model (Agent Node)" }, "to": { "table": "Stream Output" }, "type": "flow" },
+        { "from": { "table": "ToolNode" }, "to": { "table": "Stream Output" }, "type": "flow" },
+        { "from": { "table": "User Input" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "Graph Definition" }, "to": { "table": "Agent (Node)" }, "type": "flow" },
+        { "from": { "table": "AgentState" }, "to": { "table": "Agent (Node)" }, "type": "read" },
+        { "from": { "table": "Agent (Node)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "LLM" }, "to": { "table": "Agent (Node)" }, "type": "flow" },
+        { "from": { "table": "Agent (Node)" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "Agent (Node)" }, "to": { "table": "should_continue (Edge)" }, "type": "flow" },
+        { "from": { "table": "should_continue (Edge)" }, "to": { "table": "AgentState" }, "type": "read" },
+        { "from": { "table": "should_continue (Edge)" }, "to": { "table": "Code Executor (ToolNode)" }, "type": "flow" },
+        { "from": { "table": "Code Executor (ToolNode)" }, "to": { "table": "AgentState" }, "type": "read" },
+        { "from": { "table": "Code Executor (ToolNode)" }, "to": { "table": "Python REPL" }, "type": "flow" },
+        { "from": { "table": "Python REPL" }, "to": { "table": "Code Executor (ToolNode)" }, "type": "flow" },
+        { "from": { "table": "Code Executor (ToolNode)" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "Code Executor (ToolNode)" }, "to": { "table": "Agent (Node)" }, "type": "flow" },
+        { "from": { "table": "should_continue (Edge)" }, "to": { "table": "Final Output" }, "type": "flow" },
+        { "from": { "table": "Python REPL" }, "to": { "table": "Final Output" }, "type": "write" },
+        { "from": { "table": "planner (Node)" }, "to": { "table": "AgentState" }, "type": "read" },
+        { "from": { "table": "planner (Node)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "planner (Node)" }, "to": { "table": "Plan & Step Models" }, "type": "write" },
+        { "from": { "table": "Plan & Step Models" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "planner (Node)" }, "to": { "table": "should_continue (Edge)" }, "type": "flow" },
+        { "from": { "table": "should_continue (Edge)" }, "to": { "table": "AgentState" }, "type": "read" },
+        { "from": { "table": "should_continue (Edge)" }, "to": { "table": "executor (ToolNode)" }, "type": "flow" },
+        { "from": { "table": "executor (ToolNode)" }, "to": { "table": "AgentState" }, "type": "read" },
+        { "from": { "table": "executor (ToolNode)" }, "to": { "table": "Tool (Tavily Search)" }, "type": "flow" },
+        { "from": { "table": "executor (ToolNode)" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "executor (ToolNode)" }, "to": { "table": "should_continue (Edge)" }, "type": "flow" },
+        { "from": { "table": "should_continue (Edge)" }, "to": { "table": "responder (Node)" }, "type": "flow" },
+        { "from": { "table": "responder (Node)" }, "to": { "table": "AgentState" }, "type": "read" },
+        { "from": { "table": "responder (Node)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "responder (Node)" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "responder (Node)" }, "to": { "table": "Final Result" }, "type": "flow" },
+        { "from": { "table": "create_agent (Factory)" }, "to": { "table": "Supervisor (Agent)" }, "type": "flow" },
+        { "from": { "table": "create_agent (Factory)" }, "to": { "table": "Researcher (Agent)" }, "type": "flow" },
+        { "from": { "table": "create_agent (Factory)" }, "to": { "table": "Writer (Agent)" }, "type": "flow" },
+        { "from": { "table": "Supervisor (Agent)" }, "to": { "table": "AgentState", "column": "messages: Annotated[list, add_messages]" }, "type": "read" },
+        { "from": { "table": "Supervisor (Agent)" }, "to": { "table": "Router (Conditional Edge)" }, "type": "flow" },
+        { "from": { "table": "Router (Conditional Edge)" }, "to": { "table": "AgentState", "column": "next: str" }, "type": "read" },
+        { "from": { "table": "Router (Conditional Edge)" }, "to": { "table": "Researcher (Agent)" }, "type": "flow" },
+        { "from": { "table": "Router (Conditional Edge)" }, "to": { "table": "Writer (Agent)" }, "type": "flow" },
+        { "from": { "table": "Router (Conditional Edge)" }, "to": { "table": "ToolNode" }, "type": "flow" },
+        { "from": { "table": "Researcher (Agent)" }, "to": { "table": "AgentState" }, "type": "read" },
+        { "from": { "table": "Researcher (Agent)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Researcher (Agent)" }, "to": { "table": "Router (Conditional Edge)" }, "type": "flow" },
+        { "from": { "table": "Writer (Agent)" }, "to": { "table": "AgentState" }, "type": "read" },
+        { "from": { "table": "Writer (Agent)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Writer (Agent)" }, "to": { "table": "Router (Conditional Edge)" }, "type": "flow" },
+        { "from": { "table": "ToolNode" }, "to": { "table": "Search Tool (Tavily)" }, "type": "flow" },
+        { "from": { "table": "ToolNode" }, "to": { "table": "AgentState", "column": "messages: Annotated[list, add_messages]" }, "type": "write" },
+        { "from": { "table": "ToolNode" }, "to": { "table": "Router (Conditional Edge)" }, "type": "flow" },
+        { "from": { "table": "User Query" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "System Prompts" }, "to": { "table": "LLM" }, "type": "read" },
+        { "from": { "table": "AgentState" }, "to": { "table": "Router (Node)" }, "type": "read" },
+        { "from": { "table": "Router (Node)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Router (Node)" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "Router (Node)" }, "to": { "table": "Conditional Router (Edge)" }, "type": "flow" },
+        { "from": { "table": "Conditional Router (Edge)" }, "to": { "table": "Create Research Plan (Node)" }, "type": "flow" },
+        { "from": { "table": "Conditional Router (Edge)" }, "to": { "table": "General Response (Node)" }, "type": "flow" },
+        { "from": { "table": "Create Research Plan (Node)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Create Research Plan (Node)" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "Create Research Plan (Node)" }, "to": { "table": "Generate Queries (Node)" }, "type": "flow" },
+        { "from": { "table": "Generate Queries (Node)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "Generate Queries (Node)" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "Generate Queries (Node)" }, "to": { "table": "Retrieve Documents (Node)" }, "type": "flow" },
+        { "from": { "table": "Retrieve Documents (Node)" }, "to": { "table": "Retriever" }, "type": "flow" },
+        { "from": { "table": "Retrieve Documents (Node)" }, "to": { "table": "AgentState" }, "type": "write" },
+        { "from": { "table": "Retrieve Documents (Node)" }, "to": { "table": "Generate Answer (Node)" }, "type": "flow" },
+        { "from": { "table": "Generate Answer (Node)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "General Response (Node)" }, "to": { "table": "LLM" }, "type": "flow" },
+        { "from": { "table": "General Response (Node)" }, "to": { "table": "Final Answer" }, "type": "flow" }
+    ]
+};
+
+
+// ===================================================================================
+//  RENDERING LOGIC
+// ===================================================================================
+function initializeCanvas(canvasId, schema) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const transformContainer = canvas.querySelector('.transform-container');
+    const svg = canvas.querySelector('.connections');
+    let state = { scale: 0.7, panX: 50, panY: 50, isPanning: false, lastMouse: { x: 0, y: 0 } };
+
+    function render() {
+        if (!transformContainer || !svg) return;
+        transformContainer.innerHTML = '';
+        transformContainer.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+        
+        schema.tables.forEach(table => {
+            const node = document.createElement('div');
+            node.id = `${canvasId}-${table.id}`;
+            node.classList.add('node', `${table.nodeType}-node`);
+            node.style.left = `${table.pos.x}px`;
+            node.style.top = `${table.pos.y}px`;
+
+            const header = document.createElement('h3');
+            const pathSpan = table.path ? `<span class="path">${table.path}</span>` : '';
+            header.innerHTML = `${pathSpan}${table.name}`;
+
+            const list = document.createElement('ul');
+            list.innerHTML = (table.columns || []).map(col => {
+                const colName = typeof col === 'string' ? col : col.name;
+                const colType = typeof col === 'string' ? '' : col.type;
+                const colId = colName.replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+                return `<li id="${canvasId}-${table.id}-${colId}"><span class="col-name">${colName}</span>${colType ? `<span class="col-type">${colType}</span>` : ''}</li>`;
+            }).join('');
+            
+            if (table.icon) {
+                const iconDisplay = document.createElement('div');
+                iconDisplay.className = 'icon-display';
+                iconDisplay.textContent = table.icon;
+                node.appendChild(iconDisplay);
+            }
+
+            node.appendChild(header);
+            node.appendChild(list);
+            transformContainer.appendChild(node);
+        });
+        updateConnections();
+    }
+    
+    function getElementPortPosition(elId) {
+        const el = document.getElementById(elId);
+        if (!el) return null;
+        const parentNode = el.closest('.node');
+        if (!parentNode) return null;
+        const isNodeConnection = el.classList.contains('node');
+        
+        const parentRect = parentNode.getBoundingClientRect();
+        const elRect = isNodeConnection ? parentRect : el.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        
+        const y = isNodeConnection ? (parentRect.top - canvasRect.top + parentRect.height / 2) : (elRect.top - canvasRect.top + elRect.height / 2);
+        const leftX = (parentRect.left - canvasRect.left);
+        const rightX = (parentRect.right - canvasRect.left);
+
+        return { left: {x: leftX, y: y}, right: {x: rightX, y: y} };
+    }
+
+    function updateConnections() {
+        if (!svg) return;
+        svg.innerHTML = `<defs>
+            <marker id="arrowhead-read-${canvasId}" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7283" /></marker>
+            <marker id="arrowhead-write-${canvasId}" markerWidth="12" markerHeight="9" refX="10" refY="4.5" orient="auto"><polygon points="0 0, 12 4.5, 0 9" fill="#86efac" /></marker>
+            <marker id="arrowhead-flow-${canvasId}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#9ca3af" /></marker>
+        </defs>`;
+        
+        const idMap = new Map(schema.tables.map(t => [t.name, t.id]));
+
+        schema.relationships.forEach(rel => {
+            const fromId = idMap.get(rel.from.table);
+            const toId = idMap.get(rel.to.table);
+            if(!fromId || !toId) return;
+
+            let fromColName = (rel.from.column || "").replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+            let toColName = (rel.to.column || "").replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+            
+            let fromElId = `${canvasId}-${fromId}${fromColName ? '-' + fromColName : ''}`;
+            if (!document.getElementById(fromElId)) fromElId = `${canvasId}-${fromId}`;
+
+            let toElId = `${canvasId}-${toId}${toColName ? '-' + toColName : ''}`;
+            if (!document.getElementById(toElId)) toElId = `${canvasId}-${toId}`;
+            
+            const fromPorts = getElementPortPosition(fromElId);
+            const toPorts = getElementPortPosition(toElId);
+            if (!fromPorts || !toPorts) return;
+
+            const fromPos = toPorts.right.x < fromPorts.left.x ? fromPorts.left : fromPorts.right;
+            const toPos = toPorts.right.x < fromPorts.left.x ? toPorts.right : toPorts.left;
+            
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', fromPos.x); line.setAttribute('y1', fromPos.y);
+            line.setAttribute('x2', toPos.x); line.setAttribute('y2', toPos.y);
+
+            if (rel.type === 'write') {
+                line.setAttribute('stroke', '#86efac'); line.setAttribute('stroke-width', 4); line.setAttribute('marker-end', `url(#arrowhead-write-${canvasId})`);
+            } else if (rel.type === 'flow') {
+                line.setAttribute('stroke', '#9ca3af'); line.setAttribute('stroke-width', 2); line.setAttribute('stroke-dasharray', `6,6`); line.setAttribute('marker-end', `url(#arrowhead-flow-${canvasId})`);
+            } else { // 'read' is the default
+                line.setAttribute('stroke', '#6b7283'); line.setAttribute('stroke-width', 2); line.setAttribute('marker-end', `url(#arrowhead-read-${canvasId})`);
+            }
+            svg.appendChild(line);
+        });
+    }
+
+    let activeNode = null, offset = { x: 0, y: 0 };
+    canvas.addEventListener('mousedown', (e) => {
+        const targetNode = e.target.closest('.node');
+        if (targetNode) {
+            activeNode = targetNode;
+            const tableData = schema.tables.find(t => `${canvasId}-${t.id}` === activeNode.id);
+            if (!tableData) return;
+            const mouseX = (e.clientX - canvas.getBoundingClientRect().left - state.panX) / state.scale;
+            const mouseY = (e.clientY - canvas.getBoundingClientRect().top - state.panY) / state.scale;
+            offset.x = mouseX - tableData.pos.x;
+            offset.y = mouseY - tableData.pos.y;
+            activeNode.style.zIndex = 11;
+        } else {
+            state.isPanning = true;
+            state.lastMouse.x = e.clientX;
+            state.lastMouse.y = e.clientY;
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (activeNode) {
+            e.preventDefault();
+            const mouseX = (e.clientX - canvas.getBoundingClientRect().left - state.panX) / state.scale;
+            const mouseY = (e.clientY - canvas.getBoundingClientRect().top - state.panY) / state.scale;
+            const tableData = schema.tables.find(t => `${canvasId}-${t.id}` === activeNode.id);
+            if (tableData) {
+                tableData.pos.x = mouseX - offset.x;
+                tableData.pos.y = mouseY - offset.y;
+                activeNode.style.left = `${tableData.pos.x}px`;
+                activeNode.style.top = `${tableData.pos.y}px`;
+                updateConnections();
+            }
+        } else if (state.isPanning) {
+            e.preventDefault();
+            const dx = e.clientX - state.lastMouse.x;
+            const dy = e.clientY - state.lastMouse.y;
+            state.panX += dx;
+            state.panY += dy;
+            transformContainer.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+            updateConnections();
+            state.lastMouse.x = e.clientX;
+            state.lastMouse.y = e.clientY;
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (activeNode) { activeNode.style.zIndex = 10; activeNode = null; }
+        state.isPanning = false;
+    });
+    
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const oldScale = state.scale;
+        const zoomFactor = 1.1;
+        state.scale *= e.deltaY < 0 ? zoomFactor : 1 / zoomFactor;
+        state.scale = Math.max(0.1, Math.min(state.scale, 2.5));
+        state.panX = mouseX - (mouseX - state.panX) * (state.scale / oldScale);
+        state.panY = mouseY - (mouseY - state.panY) * (state.scale / oldScale);
+        render();
+    });
+
+    render();
+    return { render, updateConnections };
+}
+
+const canvases = [
+    initializeCanvas('canvas-r2', schemaR2),
+    initializeCanvas('canvas-r3', schemaR3),
+    initializeCanvas('canvas-r4', schemaR4)
+];
+
+document.querySelectorAll('.splitter').forEach(splitter => {
+    splitter.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const prevPanel = splitter.previousElementSibling;
+        const startX = e.clientX;
+        const initialPrevWidth = prevPanel.getBoundingClientRect().width;
+        
+        const onMouseMove = (moveEvent) => {
+            let newPrevWidth = initialPrevWidth + (moveEvent.clientX - startX);
+            const MIN_WIDTH = 150;
+            if (newPrevWidth < MIN_WIDTH) newPrevWidth = MIN_WIDTH;
+            prevPanel.style.flex = `0 0 ${newPrevWidth}px`;
+            canvases.forEach(c => c && c.render());
+        };
+        const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+});
+
+window.addEventListener('resize', () => {
+    canvases.forEach(c => c && c.render());
+});
+</script>
+
+</body>
+</html>

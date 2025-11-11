@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LangGraph Agent Analysis</title>
+<style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #111827; color: #d1d5db; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .header { background-color: #1f2937; padding: 1rem 2rem; border-bottom: 1px solid #374151; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; }
+    h1 { color: white; margin: 0; }
+    .controls { display: flex; align-items: center; gap: 20px; }
+    .legend { display: flex; gap: 20px; font-size: 12px; align-items: center; }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .main-container { display: flex; flex-grow: 1; }
+    .panel { min-width: 150px; height: 100%; display: flex; flex-direction: column; position: relative; }
+    .panel:nth-child(1) { flex: 0 1 15%; }
+    .panel:nth-child(3) { flex: 1 1 70%; }
+    .panel:nth-child(5) { flex: 0 1 15%; }
+    .splitter { width: 6px; background-color: #374151; cursor: col-resize; flex-shrink: 0; z-index: 100; }
+    .splitter:hover { background-color: #4b5563; }
+    .panel-header { padding: 1rem; text-align: center; border-bottom: 1px solid #374151; background-color: #1f2937; }
+    .panel-header h2 { margin: 0; font-size: 1.5rem; }
+    .header-r2 { color: #fca5a5; }
+    .header-r3 { color: #86efac; }
+    .header-r4 { color: #c4b5fd; }
+    .canvas { position: relative; width: 100%; flex-grow: 1; overflow: hidden; cursor: grab; }
+    .canvas:active { cursor: grabbing; }
+    .connections { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+    .transform-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; z-index: 2; }
+
+    .node { position: absolute; border: 3px solid #4b5563; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); font-family: monospace; width: 280px; cursor: move; z-index: 10; user-select: none; padding-top: 30px; }
+    .node h3 { padding: 8px 12px 8px 12px; margin: 0; border-bottom: 1px solid rgba(0,0,0,0.2); border-radius: 8px 8px 0 0; font-size: 14px; color: white; word-break: break-all; }
+    .node h3 .path { font-size: 0.8em; color: #9ca3af; display: block; font-weight: normal; }
+    .node ul { list-style: none; padding: 0; margin: 0; }
+    .node li { display: flex; align-items: center; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px; position: relative; }
+    .node li:last-child { border-bottom: none; }
+    .node .col-name { font-weight: 500; }
+    .node .col-type { margin-left: auto; color: #9ca3af; }
+
+    .db-node { background-color: rgba(196, 181, 253, 0.15); border-color: #a78bfa; }
+    .db-node h3 { background-color: #8b5cf6; }
+
+    .ui-node { background-color: rgba(191, 219, 254, 0.15); border-color: #60a5fa; }
+    .ui-node h3 { background-color: #3b82f6; }
+
+    .code-node { background-color: rgba(134, 239, 172, 0.1); border-color: #4ade80; }
+    .code-node h3 { background-color: #22c55e; }
+
+    .service-node { background-color: rgba(252, 165, 165, 0.1); border-color: #f87171; }
+    .service-node h3 { background-color: #ef4444; }
+
+    .icon-display { position: absolute; top: -32px; left: 50%; transform: translateX(-50%); font-size: 64px; z-index: 12; pointer-events: none; opacity: 0.8; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>LangGraph Agentic Architecture</h1>
+    <div class="controls">
+        <div class="legend">
+             <div class="legend-item"><svg width="10" height="10" style="background:#3b82f6; border-radius:3px;"></svg> UI / IO</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#22c55e; border-radius:3px;"></svg> Code / Logic</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#8b5cf6; border-radius:3px;"></svg> Data / Schema</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#ef4444; border-radius:3px;"></svg> Service</div>
+        </div>
+    </div>
+</div>
+
+<div class="main-container">
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r2">Raptor 2: Legacy</h2></div>
+        <div id="canvas-r2" class="canvas"><svg id="connections-r2" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+    <div class="splitter"></div>
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r3">LangGraph Core</h2></div>
+        <div id="canvas-r3" class="canvas"><svg id="connections-r3" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+    <div class="splitter"></div>
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r4">Raptor 4: Future</h2></div>
+        <div id="canvas-r4" class="canvas"><svg id="connections-r4" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+</div>
+
+<script>
+// ===================================================================================
+//
+//  LANGGRAPH ARCHITECTURAL ANALYSIS
+//
+// ===================================================================================
+/*
+    ARCHITECTURAL INSIGHTS FOR FUTURE AI ANALYSIS:
+    This file visualizes the core architecture of LangGraph, a framework for building stateful, multi-actor applications like agents. The design is based on the principles of graphs, where nodes represent computational steps (functions or runnables) and edges represent the flow of control between them.
+
+    **Overall Architectural Philosophy:**
+    LangGraph provides a low-level, explicit way to define cyclical graphs, which are essential for creating agentic behaviors (e.g., loops for reasoning, tool use, and self-correction). It separates the definition of the graph's structure from its execution, promoting modularity and clarity. The core concept is a `StateGraph` that operates on a persistent `State` object, making it ideal for long-running and durable applications.
+
+    **Key Components and Their Roles:**
+    - **Code/Logic Components (Green):**
+        - `StateGraph`: The central class for constructing the agent's workflow. It holds the graph's structure (nodes and edges).
+        - `Node (Function)`: Represents a unit of computation. Each node is a Python function or a LangChain Runnable that takes the current state as input and returns an update to the state. Examples from the analyzed code include `agent`, `generate`, `retrieve`, and `grade_documents`.
+        - `Conditional Edge (Function)`: The decision-making logic of the graph. After a node executes, a conditional edge (a function) is called with the updated state to determine which node to execute next. This enables complex, dynamic routing and loops.
+        - `START` & `END`: Special nodes that define the entry and exit points of the graph execution.
+        - `ToolNode`: A pre-built node type specifically for executing tools (functions) called by an LLM. It simplifies the tool-use pattern.
+        - `Checkpointer`: A mechanism for persisting the graph's state (e.g., `InMemorySaver`, `SqliteSaver`). This is the key to making agents durable and enabling features like human-in-the-loop interaction and time-travel debugging.
+
+    - **Data/Schema Components (Purple):**
+        - `GraphState (TypedDict)`: A Python `TypedDict` that defines the schema of the data that flows through the graph. Each node reads from and writes to this shared state object. The state is typically additive, with new messages or data being appended.
+        - `Messages`: The primary form of data within the state for conversational agents, usually a list of `BaseMessage` objects.
+
+    - **UI/IO Components (Blue):**
+        - `User Input`: The initial prompt or data that kicks off the graph execution.
+        - `Final Output`: The result returned when the graph execution reaches the `END` node.
+        - `LangSmith UI`: An external observability platform. LangGraph is tightly integrated with LangSmith, which provides detailed traces of graph execution, showing the flow between nodes, the state at each step, and the inputs/outputs of all components. This is critical for debugging complex agentic behavior.
+
+    - **Service Components (Red):**
+        - `LLM`: Large Language Models (e.g., from OpenAI, Anthropic, Mistral) are the "brains" of the nodes, used for decision-making, generation, and grading.
+        - `Tool`: External functions or APIs that the agent can call to interact with the outside world, such as a `Web Search` tool or a custom `Retriever`.
+        - `Vectorstore`: A database used by a `Retriever` tool to find relevant documents for Retrieval-Augmented Generation (RAG).
+
+    **The Data Flow and Control Pipeline:**
+    1.  **Invocation:** The graph is invoked with an initial input (e.g., a user question), which populates the `GraphState`.
+    2.  **Entry:** Execution begins at the `START` node, which directs the flow to the first designated computational node.
+    3.  **Node Execution:** The current node function is executed with the entire `GraphState` as its argument. It performs its task (e.g., calling an LLM, executing a tool) and returns a dictionary containing the state updates.
+    4.  **State Update:** LangGraph merges the returned dictionary into the `GraphState`. For message lists, it appends the new messages.
+    5.  **Persistence:** If a `Checkpointer` is configured, the updated state is saved.
+    6.  **Edge Evaluation:** A conditional edge function is called with the new state. It returns a string that matches the name of the next node to execute.
+    7.  **Looping/Termination:** The graph transitions to the next node and repeats from step 3. This continues until a node's edge directs the flow to the `END` node.
+    8.  **Output:** The final state of the graph is returned as the output.
+    9.  **Tracing:** Throughout this entire process, all steps, inputs, and outputs are logged to `LangSmith` for visualization and debugging.
+*/
+const schemaR2 = { tables: [], relationships: [] };
+const schemaR4 = { tables: [], relationships: [] };
+
+const schemaR3 = {
+    tables: [
+        { id: 1, name: "User Input", path: "User Interaction", nodeType: "ui", pos: { x: 50, y: 500 }, icon: "💬", columns: [ { name: "Initial Question" } ] },
+        { id: 2, name: "Final Output", path: "User Interaction", nodeType: "ui", pos: { x: 1450, y: 500 }, icon: "✅", columns: [ { name: "Final Answer" } ] },
+        { id: 3, name: "StateGraph", path: "langgraph.graph", nodeType: "code", pos: { x: 400, y: 450 }, icon: " G ", columns: [ { name: ".add_node()" }, { name: ".add_edge()" }, { name: ".add_conditional_edges()" }, { name: ".compile()" }, { name: ".stream()" } ] },
+        { id: 4, name: "GraphState", path: "TypedDict", nodeType: "db", pos: { x: 750, y: 150 }, icon: "📋", columns: [ { name: "messages: list" }, { name: "generation: str" }, { name: "documents: list" }, { name: "...other_state" } ] },
+        { id: 5, name: "Node (Function)", path: "Workflow Logic", nodeType: "code", pos: { x: 750, y: 500 }, icon: "⚙️", columns: [ { name: "Takes: GraphState" }, { name: "Returns: dict (update)" } ] },
+        { id: 6, name: "Conditional Edge", path: "Workflow Logic", nodeType: "code", pos: { x: 750, y: 800 }, icon: "🔀", columns: [ { name: "Takes: GraphState" }, { name: "Returns: str (next_node)" } ] },
+        { id: 7, name: "START", path: "Graph Entry Point", nodeType: "code", pos: { x: 400, y: 200 }, icon: "▶️", columns: [] },
+        { id: 8, name: "END", path: "Graph Exit Point", nodeType: "code", pos: { x: 1100, y: 500 }, icon: "⏹️", columns: [] },
+        { id: 9, name: "ToolNode", path: "langgraph.prebuilt", nodeType: "code", pos: { x: 750, y: 1100 }, icon: "🛠️", columns: [ { name: "Executes tool calls" } ] },
+        { id: 10, name: "LLM", path: "External Service", nodeType: "service", pos: { x: 1100, y: 250 }, icon: "🧠", columns: [ { name: "e.g., OpenAI, Mistral" } ] },
+        { id: 11, name: "Tool", path: "External Service", nodeType: "service", pos: { x: 1100, y: 1100 }, icon: "🔍", columns: [ { name: "e.g., Tavily Search" }, { name: "e.g., Retriever" } ] },
+        { id: 12, name: "Vectorstore", path: "External Service", nodeType: "service", pos: { x: 1450, y: 1100 }, icon: "📚", columns: [ { name: "e.g., Chroma, FAISS" } ] },
+        { id: 13, name: "LangSmith UI", path: "Observability", nodeType: "ui", pos: { x: 750, y: 1400 }, icon: "📊", columns: [ { name: "Trace Visualization" }, { name: "Debugging & Evaluation" } ] },
+        { id: 14, name: "Checkpointer", path: "langgraph.checkpoint", nodeType: "code", pos: { x: 400, y: 800 }, icon: "💾", columns: [ { name: ".get()", type: "Reads State" }, { name: ".put()", type: "Writes State" } ] }
+    ],
+    relationships: [
+        { from: { table: "User Input", column: "Initial Question" }, to: { table: "StateGraph", column: ".stream()" }, type: "flow" },
+        { from: { table: "StateGraph", column: ".compile()" }, to: { table: "GraphState", column: "messages: list" }, type: "read", label: "Defines State Schema" },
+        { from: { table: "StateGraph", column: ".add_node()" }, to: { table: "Node (Function)", column: "Takes: GraphState" }, type: "flow", label: "Registers Node" },
+        { from: { table: "StateGraph", column: ".add_conditional_edges()" }, to: { table: "Conditional Edge", column: "Takes: GraphState" }, type: "flow", label: "Registers Edge" },
+        { from: { table: "StateGraph", column: ".stream()" }, to: { table: "START", column: "" }, type: "flow", label: "Initiates Run" },
+        { from: { table: "START", column: "" }, to: { table: "Node (Function)", column: "Takes: GraphState" }, type: "flow", label: "Routes to first node" },
+        { from: { table: "Node (Function)", column: "Takes: GraphState" }, to: { table: "GraphState", column: "messages: list" }, type: "read", label: "Reads" },
+        { from: { table: "Node (Function)", column: "Returns: dict (update)" }, to: { table: "GraphState", column: "generation: str" }, type: "write", label: "Updates" },
+        { from: { table: "Node (Function)", column: "Takes: GraphState" }, to: { table: "LLM", column: "e.g., OpenAI, Mistral" }, type: "flow", label: "Calls for logic/generation" },
+        { from: { table: "Node (Function)", column: "Takes: GraphState" }, to: { table: "ToolNode", column: "Executes tool calls" }, type: "flow", label: "Can trigger tools" },
+        { from: { table: "Node (Function)", column: "Returns: dict (update)" }, to: { table: "Conditional Edge", column: "Takes: GraphState" }, type: "flow", label: "Triggers routing decision" },
+        { from: { table: "Conditional Edge", column: "Takes: GraphState" }, to: { table: "GraphState", column: "messages: list" }, type: "read", label: "Reads" },
+        { from: { table: "Conditional Edge", column: "Returns: str (next_node)" }, to: { table: "Node (Function)", column: "Takes: GraphState" }, type: "flow", label: "Routes (Loop)" },
+        { from: { table: "Conditional Edge", column: "Returns: str (next_node)" }, to: { table: "END", column: "" }, type: "flow", label: "Routes to end" },
+        { from: { table: "ToolNode", column: "Executes tool calls" }, to: { table: "Tool", column: "e.g., Tavily Search" }, type: "flow", label: "Executes" },
+        { from: { table: "Tool", column: "e.g., Retriever" }, to: { table: "Vectorstore", column: "e.g., Chroma, FAISS" }, type: "flow", label: "Queries" },
+        { from: { table: "END", column: "" }, to: { table: "Final Output", column: "Final Answer" }, type: "flow" },
+        { from: { table: "StateGraph", column: ".compile()" }, to: { table: "Checkpointer", column: ".get()" }, type: "flow", label: "Uses for persistence" },
+        { from: { table: "Checkpointer", column: ".put()" }, to: { table: "GraphState", column: "messages: list" }, type: "write", label: "Saves State" },
+        { from: { table: "StateGraph", column: ".stream()" }, to: { table: "LangSmith UI", column: "Trace Visualization" }, type: "flow", label: "Is Traced By" }
+    ]
+};
+
+// ===================================================================================
+//  RENDERING LOGIC
+// ===================================================================================
+function initializeCanvas(canvasId, schema) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const transformContainer = canvas.querySelector('.transform-container');
+    const svg = canvas.querySelector('.connections');
+    let state = { scale: 0.7, panX: 50, panY: 50, isPanning: false, lastMouse: { x: 0, y: 0 } };
+
+    function render() {
+        if (!transformContainer || !svg) return;
+        transformContainer.innerHTML = '';
+        transformContainer.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+        
+        schema.tables.forEach(table => {
+            const node = document.createElement('div');
+            node.id = `${canvasId}-${table.id}`;
+            node.classList.add('node', `${table.nodeType}-node`);
+            node.style.left = `${table.pos.x}px`;
+            node.style.top = `${table.pos.y}px`;
+
+            const header = document.createElement('h3');
+            const pathSpan = table.path ? `<span class="path">${table.path}</span>` : '';
+            header.innerHTML = `${pathSpan}${table.name}`;
+
+            const list = document.createElement('ul');
+            list.innerHTML = (table.columns || []).map(col => {
+                const colName = typeof col === 'string' ? col : col.name;
+                const colType = typeof col === 'string' ? '' : col.type;
+                const colId = colName.replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+                return `<li id="${canvasId}-${table.id}-${colId}"><span class="col-name">${colName}</span>${colType ? `<span class="col-type">${colType}</span>` : ''}</li>`;
+            }).join('');
+            
+            if (table.icon) {
+                const iconDisplay = document.createElement('div');
+                iconDisplay.className = 'icon-display';
+                iconDisplay.textContent = table.icon;
+                node.appendChild(iconDisplay);
+            }
+
+            node.appendChild(header);
+            node.appendChild(list);
+            transformContainer.appendChild(node);
+        });
+        updateConnections();
+    }
+    
+    function getElementPortPosition(elId) {
+        const el = document.getElementById(elId);
+        if (!el) return null;
+        const parentNode = el.closest('.node');
+        if (!parentNode) return null;
+        const isNodeConnection = el.classList.contains('node');
+        
+        const parentRect = parentNode.getBoundingClientRect();
+        const elRect = isNodeConnection ? parentRect : el.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        
+        const y = isNodeConnection ? (parentRect.top - canvasRect.top + parentRect.height / 2) : (elRect.top - canvasRect.top + elRect.height / 2);
+        const leftX = (parentRect.left - canvasRect.left);
+        const rightX = (parentRect.right - canvasRect.left);
+
+        return { left: {x: leftX, y: y}, right: {x: rightX, y: y} };
+    }
+
+    function updateConnections() {
+        if (!svg) return;
+        svg.innerHTML = `<defs>
+            <marker id="arrowhead-read-${canvasId}" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7283" /></marker>
+            <marker id="arrowhead-write-${canvasId}" markerWidth="12" markerHeight="9" refX="10" refY="4.5" orient="auto"><polygon points="0 0, 12 4.5, 0 9" fill="#86efac" /></marker>
+            <marker id="arrowhead-flow-${canvasId}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#9ca3af" /></marker>
+        </defs>`;
+        
+        const idMap = new Map(schema.tables.map(t => [t.name, t.id]));
+
+        schema.relationships.forEach(rel => {
+            const fromId = idMap.get(rel.from.table);
+            const toId = idMap.get(rel.to.table);
+            if(!fromId || !toId) return;
+
+            let fromColName = rel.from.column || "";
+            let toColName = rel.to.column || "";
+            
+            let fromElId = `${canvasId}-${fromId}${fromColName ? '-' + fromColName.replace(/\s+/g, '-').replace(/[^\w-]/g, '') : ''}`;
+            if (!document.getElementById(fromElId)) fromElId = `${canvasId}-${fromId}`;
+
+            let toElId = `${canvasId}-${toId}${toColName ? '-' + toColName.replace(/\s+/g, '-').replace(/[^\w-]/g, '') : ''}`;
+            if (!document.getElementById(toElId)) toElId = `${canvasId}-${toId}`;
+            
+            const fromPorts = getElementPortPosition(fromElId);
+            const toPorts = getElementPortPosition(toElId);
+            if (!fromPorts || !toPorts) return;
+
+            const fromPos = toPorts.right.x < fromPorts.left.x ? fromPorts.left : fromPorts.right;
+            const toPos = toPorts.right.x < fromPorts.left.x ? toPorts.right : toPorts.left;
+            
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', fromPos.x); line.setAttribute('y1', fromPos.y);
+            line.setAttribute('x2', toPos.x); line.setAttribute('y2', toPos.y);
+
+            if (rel.type === 'write') {
+                line.setAttribute('stroke', '#86efac'); line.setAttribute('stroke-width', 4); line.setAttribute('marker-end', `url(#arrowhead-write-${canvasId})`);
+            } else if (rel.type === 'flow') {
+                line.setAttribute('stroke', '#9ca3af'); line.setAttribute('stroke-width', 2); line.setAttribute('stroke-dasharray', `6,6`); line.setAttribute('marker-end', `url(#arrowhead-flow-${canvasId})`);
+            } else { // 'read' is the default
+                line.setAttribute('stroke', '#6b7283'); line.setAttribute('stroke-width', 2); line.setAttribute('marker-end', `url(#arrowhead-read-${canvasId})`);
+            }
+            svg.appendChild(line);
+        });
+    }
+
+    let activeNode = null, offset = { x: 0, y: 0 };
+    canvas.addEventListener('mousedown', (e) => {
+        const targetNode = e.target.closest('.node');
+        if (targetNode) {
+            activeNode = targetNode;
+            const tableData = schema.tables.find(t => `${canvasId}-${t.id}` === activeNode.id);
+            if (!tableData) return;
+            const mouseX = (e.clientX - canvas.getBoundingClientRect().left - state.panX) / state.scale;
+            const mouseY = (e.clientY - canvas.getBoundingClientRect().top - state.panY) / state.scale;
+            offset.x = mouseX - tableData.pos.x;
+            offset.y = mouseY - tableData.pos.y;
+            activeNode.style.zIndex = 11;
+        } else {
+            state.isPanning = true;
+            state.lastMouse.x = e.clientX;
+            state.lastMouse.y = e.clientY;
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (activeNode) {
+            e.preventDefault();
+            const mouseX = (e.clientX - canvas.getBoundingClientRect().left - state.panX) / state.scale;
+            const mouseY = (e.clientY - canvas.getBoundingClientRect().top - state.panY) / state.scale;
+            const tableData = schema.tables.find(t => `${canvasId}-${t.id}` === activeNode.id);
+            if (tableData) {
+                tableData.pos.x = mouseX - offset.x;
+                tableData.pos.y = mouseY - offset.y;
+                activeNode.style.left = `${tableData.pos.x}px`;
+                activeNode.style.top = `${tableData.pos.y}px`;
+                updateConnections();
+            }
+        } else if (state.isPanning) {
+            e.preventDefault();
+            const dx = e.clientX - state.lastMouse.x;
+            const dy = e.clientY - state.lastMouse.y;
+            state.panX += dx;
+            state.panY += dy;
+            transformContainer.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+            updateConnections();
+            state.lastMouse.x = e.clientX;
+            state.lastMouse.y = e.clientY;
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (activeNode) { activeNode.style.zIndex = 10; activeNode = null; }
+        state.isPanning = false;
+    });
+    
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const oldScale = state.scale;
+        const zoomFactor = 1.1;
+        state.scale *= e.deltaY < 0 ? zoomFactor : 1 / zoomFactor;
+        state.scale = Math.max(0.1, Math.min(state.scale, 2.5));
+        state.panX = mouseX - (mouseX - state.panX) * (state.scale / oldScale);
+        state.panY = mouseY - (mouseY - state.panY) * (state.scale / oldScale);
+        render();
+    });
+
+    render();
+    return { render, updateConnections };
+}
+
+const canvases = [
+    initializeCanvas('canvas-r2', schemaR2),
+    initializeCanvas('canvas-r3', schemaR3),
+    initializeCanvas('canvas-r4', schemaR4)
+];
+
+document.querySelectorAll('.splitter').forEach(splitter => {
+    splitter.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const prevPanel = splitter.previousElementSibling;
+        const startX = e.clientX;
+        const initialPrevWidth = prevPanel.getBoundingClientRect().width;
+        
+        const onMouseMove = (moveEvent) => {
+            let newPrevWidth = initialPrevWidth + (moveEvent.clientX - startX);
+            const MIN_WIDTH = 150;
+            if (newPrevWidth < MIN_WIDTH) newPrevWidth = MIN_WIDTH;
+            prevPanel.style.flex = `0 0 ${newPrevWidth}px`;
+            canvases.forEach(c => c && c.render());
+        };
+        const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+});
+
+window.addEventListener('resize', () => {
+    canvases.forEach(c => c && c.render());
+});
+</script>
+
+</body>
+</html>

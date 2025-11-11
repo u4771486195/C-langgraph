@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LangGraph Agent Analysis</title>
+<style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #111827; color: #d1d5db; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .header { background-color: #1f2937; padding: 1rem 2rem; border-bottom: 1px solid #374151; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; }
+    h1 { color: white; margin: 0; }
+    .controls { display: flex; align-items: center; gap: 20px; }
+    .legend { display: flex; gap: 20px; font-size: 12px; align-items: center; }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .main-container { display: flex; flex-grow: 1; }
+    .panel { min-width: 150px; height: 100%; display: flex; flex-direction: column; position: relative; }
+    .panel:nth-child(1) { flex: 0 1 15%; }
+    .panel:nth-child(3) { flex: 1 1 70%; }
+    .panel:nth-child(5) { flex: 0 1 15%; }
+    .splitter { width: 6px; background-color: #374151; cursor: col-resize; flex-shrink: 0; z-index: 100; }
+    .splitter:hover { background-color: #4b5563; }
+    .panel-header { padding: 1rem; text-align: center; border-bottom: 1px solid #374151; background-color: #1f2937; }
+    .panel-header h2 { margin: 0; font-size: 1.5rem; }
+    .header-r2 { color: #fca5a5; }
+    .header-r3 { color: #86efac; }
+    .header-r4 { color: #c4b5fd; }
+    .canvas { position: relative; width: 100%; flex-grow: 1; overflow: hidden; cursor: grab; }
+    .canvas:active { cursor: grabbing; }
+    .connections { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+    .transform-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; z-index: 2; }
+
+    .node { position: absolute; border: 3px solid #4b5563; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); font-family: monospace; width: 280px; cursor: move; z-index: 10; user-select: none; padding-top: 30px; }
+    .node h3 { padding: 8px 12px 8px 12px; margin: 0; border-bottom: 1px solid rgba(0,0,0,0.2); border-radius: 8px 8px 0 0; font-size: 14px; color: white; word-break: break-all; }
+    .node h3 .path { font-size: 0.8em; color: #9ca3af; display: block; font-weight: normal; }
+    .node ul { list-style: none; padding: 0; margin: 0; }
+    .node li { display: flex; align-items: center; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px; position: relative; }
+    .node li:last-child { border-bottom: none; }
+    .node .col-name { font-weight: 500; }
+    .node .col-type { margin-left: auto; color: #9ca3af; }
+
+    .db-node { background-color: rgba(196, 181, 253, 0.15); border-color: #a78bfa; }
+    .db-node h3 { background-color: #8b5cf6; }
+
+    .ui-node { background-color: rgba(191, 219, 254, 0.15); border-color: #60a5fa; }
+    .ui-node h3 { background-color: #3b82f6; }
+
+    .code-node { background-color: rgba(134, 239, 172, 0.1); border-color: #4ade80; }
+    .code-node h3 { background-color: #22c55e; }
+
+    .service-node { background-color: rgba(252, 165, 165, 0.1); border-color: #f87171; }
+    .service-node h3 { background-color: #ef4444; }
+
+    .icon-display { position: absolute; top: -32px; left: 50%; transform: translateX(-50%); font-size: 64px; z-index: 12; pointer-events: none; opacity: 0.8; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>LangGraph Agent Analysis</h1>
+    <div class="controls">
+        <div class="legend">
+             <div class="legend-item"><svg width="10" height="10" style="background:#3b82f6; border-radius:3px;"></svg> UI / IO</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#22c55e; border-radius:3px;"></svg> Code / Logic</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#8b5cf6; border-radius:3px;"></svg> Data / Schema</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#ef4444; border-radius:3px;"></svg> Service</div>
+        </div>
+    </div>
+</div>
+
+<div class="main-container">
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r2">Raptor 2: Legacy</h2></div>
+        <div id="canvas-r2" class="canvas"><svg id="connections-r2" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+    <div class="splitter"></div>
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r3">Adaptive RAG Agent</h2></div>
+        <div id="canvas-r3" class="canvas"><svg id="connections-r3" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+    <div class="splitter"></div>
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r4">Raptor 4: Future</h2></div>
+        <div id="canvas-r4" class="canvas"><svg id="connections-r4" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+</div>
+
+<script>
+// ===================================================================================
+//
+//  LANGGRAPH ARCHITECTURAL ANALYSIS
+//
+// ===================================================================================
+/*
+    ARCHITECTURAL INSIGHTS FOR FUTURE AI ANALYSIS:
+    This file visualizes the architecture of an "Adaptive RAG" agent. This advanced pattern unites two key strategies: (1) query analysis for intelligent routing and (2) self-corrective retrieval and generation. It represents a significant evolution from basic RAG by introducing decision-making and reflection into the workflow.
+
+    **Overall Architectural Philosophy:**
+    The core philosophy is to avoid a one-size-fits-all approach. The agent first analyzes the user's question to determine the best source of information. If the question is about a specific, indexed topic (like 'agents' or 'prompt engineering'), it routes to a private vector store. If it's about a recent or general topic, it routes to a web search. This initial routing prevents irrelevant local searches and leverages the best tool for the job. Following this, the agent employs a "self-corrective" loop, critically assessing the quality of its retrieved documents and its own generated answer, and retrying if they fail to meet quality standards.
+
+    **Key Components and Their Roles:**
+    - **Code/Logic Components (Green):**
+        - `route_question (Conditional Edge)`: This is the brain of the adaptive strategy. It uses an LLM with a Pydantic model (`RouteQuery`) to classify the user's question and decide whether the next step should be `vectorstore` or `web_search`.
+        - `retrieve (Node)`: If routed to `vectorstore`, this node fetches documents from the local `Chroma` database.
+        - `web_search (Node)`: If routed to `web_search`, this node uses an external tool like `Tavily Search` to get up-to-date information.
+        - `grade_documents (Conditional Edge)`: A crucial self-reflection step after retrieval. It uses an LLM grader (`GradeDocuments`) to check if the retrieved documents are relevant to the question.
+            - If "yes", it proceeds to `generate`.
+            - If "no", it triggers the self-correction loop by routing to `transform_query`.
+        - `transform_query (Node)`: The self-correction mechanism. It uses an LLM to rewrite the original question into a better, more specific one and then loops back to the `retrieve` node to try again with the improved query.
+        - `generate (Node)`: The generation step. It takes the filtered, relevant documents (from either source) and produces an answer using a standard RAG chain.
+        - `grade_generation (Conditional Edge)`: The final reflection step. It uses LLM graders (`GradeHallucinations` and `GradeAnswer`) to assess the generated answer.
+            - If the answer is grounded in the documents and is useful, it routes to `END`.
+            - If it's a hallucination (not supported by the documents), it loops back to `generate` to try again.
+            - If it's not useful (doesn't answer the question), it loops back to `transform_query` to start the whole process over.
+
+    - **Data/Schema Components (Purple):**
+        - `GraphState (TypedDict)`: The shared memory of the agent, holding the `question`, `documents`, `generation`, and the current route decision (`datasource`).
+        - `RouteQuery`, `GradeDocuments`, etc. (Pydantic Models): These define the structured output schemas for the various LLM-based decision-makers (the router and graders), ensuring their outputs are predictable and can be used to control the graph's flow.
+
+    - **UI/IO Components (Blue):**
+        - `User Input / Final Answer`: The beginning and end of the user's journey.
+        - `Web Loader`: An initial I/O step to load documents from URLs to build the vector store index.
+
+    - **Service Components (Red):**
+        - `LLM (GPT-4o-mini)`: The intelligence provider for all routing, grading, rewriting, and generation tasks.
+        - `Vectorstore (Chroma)`: The local, specialized knowledge base containing documents on specific topics.
+        - `Web Search (Tavily)`: The external tool for accessing broad, up-to-the-minute information.
+
+    **The Control and Data Flow:**
+    1.  **Route:** The user's `question` is first sent to the `route_question` edge to decide between `web_search` and `vectorstore`.
+    2.  **Retrieve:** The chosen tool (`retrieve` or `web_search`) is executed to gather `documents`.
+    3.  **Grade Documents:** The `grade_documents` edge checks if the documents are relevant.
+        - If not, the `transform_query` node rewrites the question, and the flow returns to step 2 (retrieval).
+    4.  **Generate:** If documents are relevant, the `generate` node creates an answer.
+    5.  **Grade Generation:** The `grade_generation` edge checks the answer's quality.
+        - If it's a hallucination, the flow returns to step 4 (generate).
+        - If it's not useful, it returns to `transform_query` to start over.
+        - If it's good, the flow proceeds to `END`.
+
+    This adaptive, reflective loop makes the agent highly robust against common RAG failures like irrelevant context and hallucinated answers.
+*/
+const schemaR2 = { tables: [], relationships: [] };
+const schemaR4 = { tables: [], relationships: [] };
+
+const schemaR3 = {
+    tables: [
+        // UI / IO
+        { id: 1, name: "User Input", path: "User Interaction", nodeType: "ui", pos: { x: 50, y: 600 }, icon: "💬", columns: [{ name: "question: str" }] },
+        { id: 2, name: "Final Answer", path: "User Interaction", nodeType: "ui", pos: { x: 2150, y: 600 }, icon: "✅", columns: [{ name: "generation: str" }] },
+        { id: 3, name: "Web Loader", path: "Index Creation", nodeType: "ui", pos: { x: 50, y: 1100 }, icon: "🌐", columns: [{ name: ".load()" }] },
+
+        // Data / Schema
+        { id: 10, name: "GraphState", path: "langgraph_adaptive_rag.ipynb", nodeType: "db", pos: { x: 350, y: 150 }, icon: "📋", columns: [{ name: "question: str" }, { name: "documents: List" }, { name: "generation: str" }, { name: "datasource: str" }] },
+        { id: 11, name: "RouteQuery", path: "Pydantic Model", nodeType: "db", pos: { x: 350, y: 350 }, icon: "📝", columns: [{ name: "datasource: 'vectorstore'|'web_search'" }] },
+        { id: 12, name: "GradeDocuments", path: "Pydantic Model", nodeType: "db", pos: { x: 950, y: 350 }, icon: "📝", columns: [{ name: "binary_score: 'yes'|'no'" }] },
+
+        // Code / Logic
+        { id: 20, name: "StateGraph Definition", path: "langgraph.graph.StateGraph", nodeType: "code", pos: { x: 50, y: 200 }, icon: " G ", columns: [{ name: ".add_node()" }, { name: ".add_conditional_edges()" }] },
+        { id: 21, name: "route_question (Edge)", path: "Workflow Logic (Router)", nodeType: "code", pos: { x: 350, y: 600 }, icon: "🔀", columns: [{ name: "question_router.invoke()" }] },
+        { id: 22, name: "retrieve (Node)", path: "Workflow Logic (Vectorstore Path)", nodeType: "code", pos: { x: 650, y: 500 }, icon: "📚", columns: [{ name: "retriever.invoke()" }] },
+        { id: 23, name: "web_search (Node)", path: "Workflow Logic (Web Path)", nodeType: "code", pos: { x: 650, y: 700 }, icon: "🔍", columns: [{ name: "tavily_tool.invoke()" }] },
+        { id: 24, name: "grade_documents (Edge)", path: "Workflow Logic (Reflection)", nodeType: "code", pos: { x: 950, y: 600 }, icon: "⚖️", columns: [{ name: "retrieval_grader.invoke()" }] },
+        { id: 25, name: "transform_query (Node)", path: "Workflow Logic (Correction Loop)", nodeType: "code", pos: { x: 950, y: 950 }, icon: "✍️", columns: [{ name: "question_rewriter.invoke()" }] },
+        { id: 26, name: "generate (Node)", path: "Workflow Logic", nodeType: "code", pos: { x: 1550, y: 600 }, icon: "⚙️", columns: [{ name: "rag_chain.invoke()" }] },
+        { id: 27, name: "grade_generation (Edge)", path: "Workflow Logic (Reflection)", nodeType: "code", pos: { x: 1850, y: 600 }, icon: "🤔", columns: [{ name: "hallucination_grader()" }, { name: "answer_grader()" }] },
+
+        // Services
+        { id: 40, name: "LLM", path: "gpt-4o-mini", nodeType: "service", pos: { x: 950, y: 1250 }, icon: "🧠", columns: [{ name: ".with_structured_output()" }] },
+        { id: 41, name: "Vectorstore", path: "Chroma", nodeType: "service", pos: { x: 650, y: 1100 }, icon: "🗄️", columns: [{ name: ".from_documents()" }] },
+        { id: 42, name: "Web Search", path: "Tavily", nodeType: "service", pos: { x: 650, y: 850 }, icon: "🌐", columns: [{ name: "tavily_tool" }] }
+    ],
+    relationships: [
+        // Initial Flow
+        { from: { table: "User Input", column: "question: str" }, to: { table: "route_question (Edge)" }, type: "flow" },
+        { from: { table: "route_question (Edge)" }, to: { table: "GraphState", column: "question: str" }, type: "read" },
+        { from: { table: "route_question (Edge)" }, to: { table: "LLM" }, type: "flow" },
+        { from: { table: "route_question (Edge)" }, to: { table: "RouteQuery" }, type: "write" },
+        { from: { table: "RouteQuery" }, to: { table: "GraphState", column: "datasource: str" }, type: "write" },
+        
+        // Two main paths
+        { from: { table: "route_question (Edge)" }, to: { table: "retrieve (Node)" }, type: "flow", label: "to vectorstore" },
+        { from: { table: "route_question (Edge)" }, to: { table: "web_search (Node)" }, type: "flow", label: "to web_search" },
+
+        // Vectorstore path
+        { from: { table: "retrieve (Node)" }, to: { table: "Vectorstore" }, type: "flow" },
+        { from: { table: "retrieve (Node)" }, to: { table: "GraphState", column: "documents: List" }, type: "write" },
+        { from: { table: "Web Loader" }, to: { table: "Vectorstore" }, type: "write", label: "Builds index" },
+
+        // Web search path
+        { from: { table: "web_search (Node)" }, to: { table: "Web Search" }, type: "flow" },
+        { from: { table: "web_search (Node)" }, to: { table: "GraphState", column: "documents: List" }, type: "write" },
+        
+        // Reflection and Generation
+        { from: { table: "retrieve (Node)" }, to: { table: "grade_documents (Edge)" }, type: "flow" },
+        { from: { table: "web_search (Node)" }, to: { table: "grade_documents (Edge)" }, type: "flow" },
+        { from: { table: "grade_documents (Edge)" }, to: { table: "GraphState", column: "documents: List" }, type: "read" },
+        { from: { table: "grade_documents (Edge)" }, to: { table: "LLM" }, type: "flow" },
+        { from: { table: "grade_documents (Edge)" }, to: { table: "GradeDocuments" }, type: "write" },
+
+        // Correction loop path
+        { from: { table: "grade_documents (Edge)" }, to: { table: "transform_query (Node)" }, type: "flow", label: "docs not relevant" },
+        { from: { table: "transform_query (Node)" }, to: { table: "GraphState", column: "question: str" }, type: "read" },
+        { from: { table: "transform_query (Node)" }, to: { table: "LLM" }, type: "flow" },
+        { from: { table: "transform_query (Node)" }, to: { table: "GraphState", column: "question: str" }, type: "write", label: "updates question" },
+        { from: { table: "transform_query (Node)" }, to: { table: "retrieve (Node)" }, type: "flow", label: "retries" },
+        
+        // Happy path to generation
+        { from: { table: "grade_documents (Edge)" }, to: { table: "generate (Node)" }, type: "flow", label: "docs are relevant" },
+        { from: { table: "generate (Node)" }, to: { table: "GraphState", column: "documents: List" }, type: "read" },
+        { from: { table: "generate (Node)" }, to: { table: "LLM" }, type: "flow" },
+        { from: { table: "generate (Node)" }, to: { table: "GraphState", column: "generation: str" }, type: "write" },
+        
+        // Final grade and loops
+        { from: { table: "generate (Node)" }, to: { table: "grade_generation (Edge)" }, type: "flow" },
+        { from: { table: "grade_generation (Edge)" }, to: { table: "GraphState", column: "generation: str" }, type: "read" },
+        { from: { table: "grade_generation (Edge)" }, to: { table: "LLM" }, type: "flow" },
+        { from: { table: "grade_generation (Edge)" }, to: { table: "generate (Node)" }, type: "flow", label: "not grounded (hallucination)" },
+        { from: { table: "grade_generation (Edge)" }, to: { table: "transform_query (Node)" }, type: "flow", label: "not useful" },
+        { from: { table: "grade_generation (Edge)" }, to: { table: "Final Answer" }, type: "flow", label: "useful" }
+    ]
+};
+
+// ===================================================================================
+//  RENDERING LOGIC
+// ===================================================================================
+function initializeCanvas(canvasId, schema) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const transformContainer = canvas.querySelector('.transform-container');
+    const svg = canvas.querySelector('.connections');
+    let state = { scale: 0.7, panX: 50, panY: 50, isPanning: false, lastMouse: { x: 0, y: 0 } };
+
+    function render() {
+        if (!transformContainer || !svg) return;
+        transformContainer.innerHTML = '';
+        transformContainer.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+        
+        schema.tables.forEach(table => {
+            const node = document.createElement('div');
+            node.id = `${canvasId}-${table.id}`;
+            node.classList.add('node', `${table.nodeType}-node`);
+            node.style.left = `${table.pos.x}px`;
+            node.style.top = `${table.pos.y}px`;
+
+            const header = document.createElement('h3');
+            const pathSpan = table.path ? `<span class="path">${table.path}</span>` : '';
+            header.innerHTML = `${pathSpan}${table.name}`;
+
+            const list = document.createElement('ul');
+            list.innerHTML = (table.columns || []).map(col => {
+                const colName = typeof col === 'string' ? col : col.name;
+                const colType = typeof col === 'string' ? '' : col.type;
+                const colId = colName.replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+                return `<li id="${canvasId}-${table.id}-${colId}"><span class="col-name">${colName}</span>${colType ? `<span class="col-type">${colType}</span>` : ''}</li>`;
+            }).join('');
+            
+            if (table.icon) {
+                const iconDisplay = document.createElement('div');
+                iconDisplay.className = 'icon-display';
+                iconDisplay.textContent = table.icon;
+                node.appendChild(iconDisplay);
+            }
+
+            node.appendChild(header);
+            node.appendChild(list);
+            transformContainer.appendChild(node);
+        });
+        updateConnections();
+    }
+    
+    function getElementPortPosition(elId) {
+        const el = document.getElementById(elId);
+        if (!el) return null;
+        const parentNode = el.closest('.node');
+        if (!parentNode) return null;
+        const isNodeConnection = el.classList.contains('node');
+        
+        const parentRect = parentNode.getBoundingClientRect();
+        const elRect = isNodeConnection ? parentRect : el.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        
+        const y = isNodeConnection ? (parentRect.top - canvasRect.top + parentRect.height / 2) : (elRect.top - canvasRect.top + elRect.height / 2);
+        const leftX = (parentRect.left - canvasRect.left);
+        const rightX = (parentRect.right - canvasRect.left);
+
+        return { left: {x: leftX, y: y}, right: {x: rightX, y: y} };
+    }
+
+    function updateConnections() {
+        if (!svg) return;
+        svg.innerHTML = `<defs>
+            <marker id="arrowhead-read-${canvasId}" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7283" /></marker>
+            <marker id="arrowhead-write-${canvasId}" markerWidth="12" markerHeight="9" refX="10" refY="4.5" orient="auto"><polygon points="0 0, 12 4.5, 0 9" fill="#86efac" /></marker>
+            <marker id="arrowhead-flow-${canvasId}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#9ca3af" /></marker>
+        </defs>`;
+        
+        const idMap = new Map(schema.tables.map(t => [t.name, t.id]));
+
+        schema.relationships.forEach(rel => {
+            const fromTable = schema.tables.find(t => t.name === rel.from.table);
+            const toTable = schema.tables.find(t => t.name === rel.to.table);
+            if(!fromTable || !toTable) return;
+
+            const fromId = fromTable.id;
+            const toId = toTable.id;
+
+            let fromColName = rel.from.column || "";
+            let toColName = rel.to.column || "";
+            
+            let fromElId = `${canvasId}-${fromId}${fromColName ? '-' + fromColName.replace(/\s+/g, '-').replace(/[^\w-]/g, '') : ''}`;
+            if (!document.getElementById(fromElId)) fromElId = `${canvasId}-${fromId}`;
+
+            let toElId = `${canvasId}-${toId}${toColName ? '-' + toColName.replace(/\s+/g, '-').replace(/[^\w-]/g, '') : ''}`;
+            if (!document.getElementById(toElId)) toElId = `${canvasId}-${toId}`;
+            
+            const fromPorts = getElementPortPosition(fromElId);
+            const toPorts = getElementPortPosition(toElId);
+            if (!fromPorts || !toPorts) return;
+
+            const fromPos = toPorts.right.x < fromPorts.left.x ? fromPorts.left : fromPorts.right;
+            const toPos = toPorts.right.x < fromPorts.left.x ? toPorts.right : toPorts.left;
+            
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', fromPos.x); line.setAttribute('y1', fromPos.y);
+            line.setAttribute('x2', toPos.x); line.setAttribute('y2', toPos.y);
+
+            if (rel.type === 'write') {
+                line.setAttribute('stroke', '#86efac'); line.setAttribute('stroke-width', 4); line.setAttribute('marker-end', `url(#arrowhead-write-${canvasId})`);
+            } else if (rel.type === 'flow') {
+                line.setAttribute('stroke', '#9ca3af'); line.setAttribute('stroke-width', 2); line.setAttribute('stroke-dasharray', `6,6`); line.setAttribute('marker-end', `url(#arrowhead-flow-${canvasId})`);
+            } else { // 'read' is the default
+                line.setAttribute('stroke', '#6b7283'); line.setAttribute('stroke-width', 2); line.setAttribute('marker-end', `url(#arrowhead-read-${canvasId})`);
+            }
+            svg.appendChild(line);
+        });
+    }
+
+    let activeNode = null, offset = { x: 0, y: 0 };
+    canvas.addEventListener('mousedown', (e) => {
+        const targetNode = e.target.closest('.node');
+        if (targetNode) {
+            activeNode = targetNode;
+            const tableData = schema.tables.find(t => `${canvasId}-${t.id}` === activeNode.id);
+            if (!tableData) return;
+            const mouseX = (e.clientX - canvas.getBoundingClientRect().left - state.panX) / state.scale;
+            const mouseY = (e.clientY - canvas.getBoundingClientRect().top - state.panY) / state.scale;
+            offset.x = mouseX - tableData.pos.x;
+            offset.y = mouseY - tableData.pos.y;
+            activeNode.style.zIndex = 11;
+        } else {
+            state.isPanning = true;
+            state.lastMouse.x = e.clientX;
+            state.lastMouse.y = e.clientY;
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (activeNode) {
+            e.preventDefault();
+            const mouseX = (e.clientX - canvas.getBoundingClientRect().left - state.panX) / state.scale;
+            const mouseY = (e.clientY - canvas.getBoundingClientRect().top - state.panY) / state.scale;
+            const tableData = schema.tables.find(t => `${canvasId}-${t.id}` === activeNode.id);
+            if (tableData) {
+                tableData.pos.x = mouseX - offset.x;
+                tableData.pos.y = mouseY - offset.y;
+                activeNode.style.left = `${tableData.pos.x}px`;
+                activeNode.style.top = `${tableData.pos.y}px`;
+                updateConnections();
+            }
+        } else if (state.isPanning) {
+            e.preventDefault();
+            const dx = e.clientX - state.lastMouse.x;
+            const dy = e.clientY - state.lastMouse.y;
+            state.panX += dx;
+            state.panY += dy;
+            transformContainer.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+            updateConnections();
+            state.lastMouse.x = e.clientX;
+            state.lastMouse.y = e.clientY;
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (activeNode) { activeNode.style.zIndex = 10; activeNode = null; }
+        state.isPanning = false;
+    });
+    
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const oldScale = state.scale;
+        const zoomFactor = 1.1;
+        state.scale *= e.deltaY < 0 ? zoomFactor : 1 / zoomFactor;
+        state.scale = Math.max(0.1, Math.min(state.scale, 2.5));
+        state.panX = mouseX - (mouseX - state.panX) * (state.scale / oldScale);
+        state.panY = mouseY - (mouseY - state.panY) * (state.scale / oldScale);
+        render();
+    });
+
+    render();
+    return { render, updateConnections };
+}
+
+const canvases = [
+    initializeCanvas('canvas-r2', schemaR2),
+    initializeCanvas('canvas-r3', schemaR3),
+    initializeCanvas('canvas-r4', schemaR4)
+];
+
+document.querySelectorAll('.splitter').forEach(splitter => {
+    splitter.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const prevPanel = splitter.previousElementSibling;
+        const startX = e.clientX;
+        const initialPrevWidth = prevPanel.getBoundingClientRect().width;
+        
+        const onMouseMove = (moveEvent) => {
+            let newPrevWidth = initialPrevWidth + (moveEvent.clientX - startX);
+            const MIN_WIDTH = 150;
+            if (newPrevWidth < MIN_WIDTH) newPrevWidth = MIN_WIDTH;
+            prevPanel.style.flex = `0 0 ${newPrevWidth}px`;
+            canvases.forEach(c => c && c.render());
+        };
+        const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+});
+
+window.addEventListener('resize', () => {
+    canvases.forEach(c => c && c.render());
+});
+</script>
+
+</body>
+</html>
