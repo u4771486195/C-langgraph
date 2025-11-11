@@ -1,0 +1,133 @@
+# .github/workflows/generate-snapshot.yml
+name: "Manual: Generate Repository Snapshot"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    env:
+      # Put each repo on its own line. Duplicates removed automatically.
+      REPOS: |
+        https://github.com/langchain-ai/langgraph
+      # Skip big/binary stuff by extension; extend as needed.
+      BINARY_EXTS: .ico,.png,.jpg,.jpeg,.gif,.svg,.webp,.mp4,.mov,.avi,.mkv,.ogg,.mp3,.wav,.zip,.7z,.tar,.gz,.bz2,.xz,.rar,.pdf,.woff,.woff2,.ttf,.otf,.dll,.so,.dylib,.exe
+      # Skip these folders anywhere in the tree
+      SKIP_DIRS: .git,node_modules,.github,.vscode,build,dist,out,.next,.vercel,bin,obj,Packages,_build
+      # Optional: per-file content size cap (in characters) to keep artifacts smaller
+      MAX_CHARS_PER_FILE: "200000"
+
+    steps:
+      - name: Check out this repo (host repo)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install git (runner has it, but ensure present)
+        run: git --version
+
+      - name: Clone targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p clones
+          # de-duplicate lines
+          printf "%s\n" "$REPOS" | awk 'NF' | sort -u > repo_list.txt
+          while read -r url; do
+            name="$(basename "$url")"
+            echo "::group::Cloning $url"
+            git clone --depth 1 "$url" "clones/$name" || echo "WARN: clone failed for $url"
+            echo "::endgroup::"
+          done < repo_list.txt
+          ls -la clones || true
+
+      - name: Generate snapshot (single appended Markdown)
+        id: gen
+        shell: python
+        run: |
+          import os, sys, subprocess, shlex, json, pathlib
+
+          WORK = os.environ.get("GITHUB_WORKSPACE", ".")
+          ROOT = pathlib.Path(WORK) / "clones"
+          SKIP_DIRS = set(os.environ.get("SKIP_DIRS","").split(","))
+          MAX_CHARS = int(os.environ.get("MAX_CHARS_PER_FILE","200000"))
+          BIN_EXTS = set(e.strip().lower() for e in os.environ.get("BINARY_EXTS","").split(","))
+          out_path = pathlib.Path("repo_snapshot.md")
+
+          def is_binary(relpath:str)->bool:
+            lp = relpath.lower()
+            return any(lp.endswith(ext) for ext in BIN_EXTS)
+
+          def should_skip_dir(dirname:str)->bool:
+            return dirname in SKIP_DIRS
+
+          def repo_head_sha(repo_dir: pathlib.Path) -> str:
+            try:
+              return subprocess.check_output(["git","-C",str(repo_dir),"rev-parse","HEAD"], text=True).strip()
+            except Exception:
+              return "unknown"
+
+          lines = []
+          lines.append(f"# Consolidated Repository Snapshot\n\n")
+          for repo_dir in sorted(ROOT.iterdir()):
+            if not repo_dir.is_dir():
+              continue
+            sha = repo_head_sha(repo_dir)
+            # infer GitHub URL
+            try:
+              remote = subprocess.check_output(["git","-C",str(repo_dir),"remote","get-url","origin"], text=True).strip()
+            except Exception:
+              remote = f"(unknown remote for {repo_dir.name})"
+            gh_url = remote.replace(".git","")
+            lines.append(f"\n\n## {repo_dir.name} @ {sha}\nSource: {gh_url}\n\n")
+
+            for root, dirs, files in os.walk(repo_dir):
+              # prune skip directories
+              dirs[:] = [d for d in dirs if not should_skip_dir(d)]
+              files.sort()
+              for fn in files:
+                fp = pathlib.Path(root) / fn
+                rel = fp.relative_to(repo_dir).as_posix()
+                blob_url = f"{gh_url}/blob/main/{rel}"
+                lines.append(blob_url + "\n")
+
+                if is_binary(rel):
+                  lines.append("```\nContent skipped (binary or ignored type).\n```\n---\n")
+                  continue
+                try:
+                  # guard huge files
+                  with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read(MAX_CHARS + 1)
+                    truncated = len(content) > MAX_CHARS
+                    content = content[:MAX_CHARS]
+                  ext = pathlib.Path(fn).suffix.lstrip(".") or "text"
+                  fence = ext if len(ext) <= 20 else "text"
+                  lines.append(f"```{fence}\n{content}\n```")
+                  if truncated:
+                    lines.append("\n> [truncated]\n")
+                  lines.append("\n---\n")
+                except Exception as e:
+                  lines.append(f"```\nError reading file: {e}\n```\n---\n")
+
+          with open(out_path, "w", encoding="utf-8") as w:
+            w.write("".join(lines))
+          print(f"::notice::Wrote {out_path} ({os.path.getsize(out_path)} bytes)")
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-snapshot
+          path: repo_snapshot.md
+          if-no-files-found: error
+          retention-days: 7
